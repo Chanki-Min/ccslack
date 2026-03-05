@@ -1,7 +1,7 @@
+import { Assistant } from "@slack/bolt";
 import type { CCSlackConfig } from "../config";
 import { parseMessage } from "./parser";
-import { runClaude } from "../claude/runner";
-import { formatThreadReply, splitMessage } from "./responder";
+import { runClaudeStream } from "../claude/runner";
 import type { TaskQueue } from "../queue/taskQueue";
 
 export function resolveRepoPath(
@@ -77,115 +77,98 @@ async function fetchThreadContext(
   }
 }
 
-export function createHandler(config: CCSlackConfig, queue: TaskQueue) {
-  return async ({
-    event,
-    client,
-  }: {
-    event: any;
-    client: any;
-  }) => {
-    // Auth check
-    if (!config.allowedUsers.includes(event.user)) {
-      console.log(`[auth] Ignored mention from unauthorized user: ${event.user}`);
-      return;
-    }
+export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assistant {
+  return new Assistant({
+    threadStarted: async ({ say, setSuggestedPrompts, setTitle, saveThreadContext }) => {
+      await setTitle("CCSlack Assistant");
+      await saveThreadContext();
+      const repos = Object.keys(config.repos).join(", ");
+      await say({ text: `안녕하세요! 사용 가능한 레포: ${repos}\n\n레포 지정: \`repo:이름\` 프리픽스 사용` });
+      if (config.suggestedPrompts?.length) {
+        await setSuggestedPrompts({ prompts: config.suggestedPrompts });
+      }
+    },
+    userMessage: async ({ message, event, client, say, setStatus, setTitle }) => {
+      // Guard: ensure message has required fields
+      if (!("text" in message) || !("thread_ts" in message) || !message.text) {
+        return;
+      }
 
-    const { repo, prompt } = parseMessage(event.text || "");
-    console.log(`[task] New request from ${event.user} | repo: ${repo ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`);
+      // Auth check
+      if (!config.allowedUsers.includes(event.user)) {
+        console.log(`[auth] Ignored message from unauthorized user: ${event.user}`);
+        await say({ text: "권한이 없습니다." });
+        return;
+      }
 
-    let repoPath: string;
-    try {
-      repoPath = resolveRepoPath(repo, config);
-    } catch (err: any) {
-      console.log(`[task] Repo resolution failed: ${err.message}`);
-      await client.chat.postMessage({
-        channel: event.channel,
-        thread_ts: event.ts,
-        text: err.message,
-      });
-      return;
-    }
+      const { repo, prompt } = parseMessage(event.text || "");
+      console.log(`[task] New request from ${event.user} | repo: ${repo ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`);
 
-    console.log(`[task] Resolved repo path: ${repoPath}`);
+      let repoPath: string;
+      try {
+        repoPath = resolveRepoPath(repo, config);
+      } catch (err: any) {
+        console.log(`[task] Repo resolution failed: ${err.message}`);
+        await say({ text: err.message });
+        return;
+      }
 
-    // Fetch thread context if this message is in a thread
-    const threadContext = await fetchThreadContext(
-      client,
-      event.channel,
-      event.thread_ts,
-      event.ts
-    );
-    const fullPrompt = threadContext + prompt;
+      console.log(`[task] Resolved repo path: ${repoPath}`);
+      await setTitle(prompt.slice(0, 50));
+      await setStatus("Thinking...");
 
-    // Add "working" reaction
-    await client.reactions.add({
-      channel: event.channel,
-      timestamp: event.ts,
-      name: "hourglass_flowing_sand",
-    });
+      // Thread context
+      const threadContext = await fetchThreadContext(
+        client,
+        event.channel,
+        event.thread_ts,
+        event.ts
+      );
+      const fullPrompt = threadContext + prompt;
 
-    // Notify if queued
-    if (queue.pendingCount > 0) {
-      console.log(`[queue] Task queued (${queue.pendingCount} ahead, ${queue.runningCount} running)`);
-      await client.chat.postMessage({
-        channel: event.channel,
-        thread_ts: event.ts,
-        text: `Queue: ${queue.pendingCount} task(s) ahead. Waiting...`,
-      });
-    }
+      // Queue + Stream
+      const startTime = Date.now();
+      console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}`);
 
-    // Enqueue the task
-    const startTime = Date.now();
-    console.log(`[claude] Starting: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}`);
-    const result = await queue.enqueue(() =>
-      runClaude({
-        prompt: fullPrompt,
-        cwd: repoPath,
-        claudePath: config.claudePath,
-        timeout: config.taskTimeout,
-      })
-    );
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[claude] Finished in ${elapsed}s | success: ${result.success} | output: ${result.output.length} chars`);
-    if (!result.success) {
-      console.log(`[claude] Error: ${result.error}`);
-    }
+      try {
+        await queue.enqueue(async () => {
+          const streamer = client.chatStream({
+            channel: event.channel,
+            thread_ts: event.thread_ts || event.ts,
+            recipient_user_id: event.user,
+          });
 
-    // Remove hourglass, add result reaction
-    try {
-      await client.reactions.remove({
-        channel: event.channel,
-        timestamp: event.ts,
-        name: "hourglass_flowing_sand",
-      });
-    } catch {}
-
-    await client.reactions.add({
-      channel: event.channel,
-      timestamp: event.ts,
-      name: result.success ? "white_check_mark" : "x",
-    });
-
-    // Thread reply: summary
-    const threadReply = formatThreadReply(result);
-    await client.chat.postMessage({
-      channel: event.channel,
-      thread_ts: event.ts,
-      text: threadReply,
-    });
-
-    // DM: full output
-    const dmChunks = splitMessage(
-      result.output || result.error || "No output",
-      4000
-    );
-    console.log(`[slack] Sending thread reply + ${dmChunks.length} DM chunk(s) to ${event.user}`);
-    for (const chunk of dmChunks) {
-      await client.chat.postMessage({
-        channel: event.user,
-        text: chunk,
-      });
-    }
-  };
+          try {
+            for await (const evt of runClaudeStream({
+              prompt: fullPrompt,
+              cwd: repoPath,
+              claudePath: config.claudePath,
+              timeout: config.taskTimeout,
+              allowedTools: config.allowedTools,
+            })) {
+              if (evt.type === "text_delta") {
+                await streamer.append({ markdown_text: evt.text });
+              } else if (evt.type === "thinking") {
+                const preview = evt.thinking.length > 200 ? evt.thinking.slice(0, 200) + "..." : evt.thinking;
+                console.log(`[thinking] ${preview}`);
+              } else if (evt.type === "error") {
+                console.log(`[claude] Error: ${evt.error}`);
+                await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
+              } else if (evt.type === "result") {
+                console.log(`[claude] Result received: ${evt.text.length} chars`);
+              }
+            }
+          } finally {
+            await streamer.stop();
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`[claude] Stream finished in ${elapsed}s`);
+          }
+        });
+      } catch (err: any) {
+        console.log(`[claude] Unhandled error: ${err.message}`);
+        await setStatus("");
+        await say({ text: `오류가 발생했습니다: ${err.message}` });
+      }
+    },
+  });
 }

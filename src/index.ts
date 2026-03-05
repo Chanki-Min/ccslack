@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import { loadConfig, DEFAULT_CONFIG_PATH } from "./config";
 import { TaskQueue } from "./queue/taskQueue";
-import { createHandler } from "./slack/handler";
+import { createAssistant } from "./slack/handler";
 
 const configPath = process.env.CCSLACK_CONFIG || DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -18,17 +18,10 @@ const app = new App({
 });
 
 const queue = new TaskQueue(config.maxConcurrency);
-const handler = createHandler(config, queue);
-
-app.event("app_mention", async ({ event, client }) => {
-  try {
-    await handler({ event, client });
-  } catch (err) {
-    console.error("Unhandled error in mention handler:", err);
-  }
-});
+const assistant = createAssistant(config, queue);
+app.assistant(assistant);
 
 (async () => {
   await app.start();
-  console.log("CCSlack bot is running!");
+  console.log("CCSlack AI Assistant is running!");
 })();

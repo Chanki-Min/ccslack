@@ -55,4 +55,46 @@ describe("loadConfig", () => {
 
     expect(() => loadConfig(TEST_CONFIG_PATH)).toThrow();
   });
+
+  it("loads allowedTools from config", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      allowedTools: ["Bash", "Read", "Write"],
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.allowedTools).toEqual(["Bash", "Read", "Write"]);
+  });
+
+  it("loads suggestedPrompts from config", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      suggestedPrompts: [
+        { title: "Hello", message: "Say hello" },
+        { title: "Status", message: "Check git status" },
+      ],
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.suggestedPrompts).toEqual([
+      { title: "Hello", message: "Say hello" },
+      { title: "Status", message: "Check git status" },
+    ]);
+  });
+
+  it("defaults allowedTools and suggestedPrompts to empty arrays", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.allowedTools).toEqual([]);
+    expect(result.suggestedPrompts).toEqual([]);
+  });
 });

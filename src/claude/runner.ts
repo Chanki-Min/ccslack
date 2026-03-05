@@ -3,7 +3,22 @@ export interface ClaudeRunOptions {
   cwd: string;
   claudePath: string;
   timeout: number;
+  allowedTools?: string[];
 }
+
+export interface ClaudeStreamOptions {
+  prompt: string;
+  cwd: string;
+  claudePath: string;
+  timeout: number;
+  allowedTools?: string[];
+}
+
+export type StreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "thinking"; thinking: string }
+  | { type: "result"; text: string }
+  | { type: "error"; error: string };
 
 export interface ClaudeResult {
   success: boolean;
@@ -41,18 +56,136 @@ export function parseStreamJson(rawOutput: string): { text: string; thinking: st
   return { text, thinking };
 }
 
-export async function runClaude(options: ClaudeRunOptions): Promise<ClaudeResult> {
-  const { prompt, cwd, claudePath, timeout } = options;
+export async function* runClaudeStream(options: ClaudeStreamOptions): AsyncGenerator<StreamEvent> {
+  const { prompt, cwd, claudePath, timeout, allowedTools } = options;
+
+  const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+  if (allowedTools && allowedTools.length > 0) {
+    cmd.push("--allowedTools", ...allowedTools);
+  }
+
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const proc = Bun.spawn(cmd, {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const timeoutPromise = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill();
+      resolve();
+    }, timeout);
+  });
+
+  const reader = proc.stdout.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const pendingEvents: StreamEvent[] = [];
+
+  function parseLine(line: string) {
+    if (!line.trim()) return;
+    try {
+      const msg = JSON.parse(line);
+
+      // Real-time token streaming via stream_event (--include-partial-messages)
+      if (msg.type === "stream_event" && msg.event) {
+        const evt = msg.event;
+        if (evt.type === "content_block_delta" && evt.delta) {
+          if (evt.delta.type === "text_delta" && evt.delta.text) {
+            pendingEvents.push({ type: "text_delta", text: evt.delta.text });
+          }
+        }
+      }
+
+      // Thinking blocks from completed assistant messages
+      if (msg.type === "assistant" && Array.isArray(msg.message?.content)) {
+        for (const block of msg.message.content) {
+          if (block.type === "thinking" && block.thinking) {
+            pendingEvents.push({ type: "thinking", thinking: block.thinking });
+          }
+        }
+      }
+
+      // Final result
+      if (msg.type === "result") {
+        pendingEvents.push({ type: "result", text: msg.result ?? "" });
+      }
+    } catch {
+      // skip non-JSON lines
+    }
+  }
 
   try {
-    const proc = Bun.spawn(
-      [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose"],
-      {
-        cwd,
-        stdout: "pipe",
-        stderr: "pipe",
+    while (true) {
+      const readPromise = reader.read();
+      const { done, value } = await Promise.race([
+        readPromise,
+        timeoutPromise.then(() => ({ done: true as const, value: undefined })),
+      ]);
+
+      if (timedOut) {
+        yield { type: "error", error: "timeout" };
+        return;
       }
-    );
+
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        parseLine(line);
+      }
+
+      for (const evt of pendingEvents) {
+        yield evt;
+      }
+      pendingEvents.length = 0;
+    }
+
+    if (buffer.trim()) {
+      parseLine(buffer);
+      for (const evt of pendingEvents) {
+        yield evt;
+      }
+      pendingEvents.length = 0;
+    }
+
+    clearTimeout(timer);
+
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      const stderr = await new Response(proc.stderr).text();
+      yield { type: "error", error: stderr || `Process exited with code ${exitCode}` };
+    }
+  } finally {
+    clearTimeout(timer);
+    try {
+      reader.cancel();
+    } catch {
+      // ignore
+    }
+  }
+}
+
+export async function runClaude(options: ClaudeRunOptions): Promise<ClaudeResult> {
+  const { prompt, cwd, claudePath, timeout, allowedTools } = options;
+
+  try {
+    const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose"];
+    if (allowedTools && allowedTools.length > 0) {
+      cmd.push("--allowedTools", ...allowedTools);
+    }
+    const proc = Bun.spawn(cmd, {
+      cwd,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
 
     let timer: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {

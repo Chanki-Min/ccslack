@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { runClaude, parseStreamJson } from "../../src/claude/runner";
+import { runClaude, parseStreamJson, runClaudeStream, StreamEvent } from "../../src/claude/runner";
 import { writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 
@@ -42,6 +42,65 @@ describe("runClaude", () => {
       });
       expect(result.success).toBe(false);
       expect(result.error).toContain("timeout");
+    } finally {
+      unlinkSync(script);
+    }
+  });
+});
+
+describe("runClaudeStream", () => {
+  it("yields events from stream_event and assistant messages", async () => {
+    const script = join(import.meta.dir, "_stream.sh");
+    writeFileSync(
+      script,
+      `#!/bin/bash
+echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello "}}}'
+echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}}'
+echo '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"let me think"},{"type":"text","text":"hello world"}]}}'
+echo '{"type":"result","result":"final answer"}'
+`,
+      { mode: 0o755 }
+    );
+
+    try {
+      const events: StreamEvent[] = [];
+      for await (const evt of runClaudeStream({
+        prompt: "ignored",
+        cwd: "/tmp",
+        claudePath: script,
+        timeout: 5000,
+      })) {
+        events.push(evt);
+      }
+
+      // stream_event text_delta tokens
+      expect(events).toContainEqual({ type: "text_delta", text: "hello " });
+      expect(events).toContainEqual({ type: "text_delta", text: "world" });
+      // thinking from completed assistant message
+      expect(events).toContainEqual({ type: "thinking", thinking: "let me think" });
+      // final result
+      expect(events).toContainEqual({ type: "result", text: "final answer" });
+    } finally {
+      unlinkSync(script);
+    }
+  });
+
+  it("respects timeout", async () => {
+    const script = join(import.meta.dir, "_sleep_stream.sh");
+    writeFileSync(script, "#!/bin/bash\nsleep 60\n", { mode: 0o755 });
+
+    try {
+      const events: StreamEvent[] = [];
+      for await (const evt of runClaudeStream({
+        prompt: "ignored",
+        cwd: "/tmp",
+        claudePath: script,
+        timeout: 100,
+      })) {
+        events.push(evt);
+      }
+
+      expect(events.some((e) => e.type === "error")).toBe(true);
     } finally {
       unlinkSync(script);
     }

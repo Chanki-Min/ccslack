@@ -7,12 +7,16 @@ export interface CCSlackConfig {
   defaultRepo?: string;
   claudePath: string;
   repos: Record<string, string>;
+  allowedTools?: string[];
+  suggestedPrompts?: Array<{ title: string; message: string }>;
 }
 
 const DEFAULTS: Partial<CCSlackConfig> = {
   maxConcurrency: 2,
   taskTimeout: 300000,
   claudePath: "claude",
+  allowedTools: [],
+  suggestedPrompts: [],
 };
 
 export function loadConfig(configPath: string): CCSlackConfig {
