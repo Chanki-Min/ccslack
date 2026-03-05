@@ -11,6 +11,7 @@ export interface CCSlackConfig {
   suggestedPrompts?: Array<{ title: string; message: string }>;
   maxOutputTokens?: number;
   defaultModel?: string;
+  enableSessionContinuity?: boolean;
 }
 
 const DEFAULTS: Partial<CCSlackConfig> = {
@@ -20,6 +21,7 @@ const DEFAULTS: Partial<CCSlackConfig> = {
   allowedTools: [],
   suggestedPrompts: [],
   maxOutputTokens: 128000,
+  enableSessionContinuity: true,
 };
 
 export function loadConfig(configPath: string): CCSlackConfig {

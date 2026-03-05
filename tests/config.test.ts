@@ -131,4 +131,27 @@ describe("loadConfig", () => {
     const result = loadConfig(TEST_CONFIG_PATH);
     expect(result.defaultModel).toBeUndefined();
   });
+
+  it("defaults enableSessionContinuity to true", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.enableSessionContinuity).toBe(true);
+  });
+
+  it("respects enableSessionContinuity: false", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      enableSessionContinuity: false,
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.enableSessionContinuity).toBe(false);
+  });
 });

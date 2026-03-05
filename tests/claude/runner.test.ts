@@ -17,6 +17,29 @@ describe("runClaude", () => {
     expect(result.output).toContain("hello");
   });
 
+  it("includes --session-id flag when sessionId is provided", async () => {
+    const result = await runClaude({
+      prompt: "hello",
+      cwd: "/tmp",
+      claudePath: "echo",
+      timeout: 5000,
+      sessionId: "test-uuid-1234",
+    });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("--session-id");
+    expect(result.output).toContain("test-uuid-1234");
+  });
+
+  it("omits --session-id when sessionId is undefined", async () => {
+    const result = await runClaude({
+      prompt: "hello",
+      cwd: "/tmp",
+      claudePath: "echo",
+      timeout: 5000,
+    });
+    expect(result.output).not.toContain("--session-id");
+  });
+
   it("returns failure for nonexistent command", async () => {
     const result = await runClaude({
       prompt: "test",

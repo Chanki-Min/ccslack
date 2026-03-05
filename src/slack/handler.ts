@@ -2,7 +2,7 @@ import { Assistant } from "@slack/bolt";
 import type { CCSlackConfig } from "../config";
 import { parseMessage } from "./parser";
 import { runClaude, runClaudeStream } from "../claude/runner";
-import { formatMentionReply } from "./responder";
+import { formatMentionReply, formatSessionInfo } from "./responder";
 import type { TaskQueue } from "../queue/taskQueue";
 
 export function resolveRepoPath(
@@ -25,6 +25,10 @@ export function resolveRepoPath(
   }
 
   return resolved;
+}
+
+function maybeSessionId(config: CCSlackConfig): string | undefined {
+  return config.enableSessionContinuity !== false ? crypto.randomUUID() : undefined;
 }
 
 async function fetchThreadContext(
@@ -88,6 +92,8 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       return;
     }
 
+    const sessionId = maybeSessionId(config);
+
     // Hourglass reaction + thread context in parallel
     const [, threadContext] = await Promise.all([
       client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" }).catch(() => {}),
@@ -96,7 +102,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
     const fullPrompt = threadContext + prompt;
 
     const startTime = Date.now();
-    console.log(`[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}`);
+    console.log(`[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`);
 
     try {
       const result = await queue.enqueue(() =>
@@ -108,6 +114,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           allowedTools: config.allowedTools,
           maxOutputTokens: config.maxOutputTokens,
           model: resolvedModel,
+          sessionId,
         })
       );
 
@@ -119,6 +126,12 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       const messages = formatMentionReply(result);
       for (const msg of messages) {
         await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+      }
+
+      // Post session info for local resume
+      if (sessionId) {
+        const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+        await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -173,6 +186,8 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
       console.log(`[task] Resolved repo path: ${repoPath}`);
 
+      const sessionId = maybeSessionId(config);
+
       // Title, status, and thread context are independent — run in parallel
       const [, , threadContext] = await Promise.all([
         setTitle(prompt.slice(0, 50)),
@@ -205,6 +220,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
               allowedTools: config.allowedTools,
               maxOutputTokens: config.maxOutputTokens,
               model: resolvedModel,
+              sessionId,
             })) {
               if (evt.type === "text_delta") {
                 if (hasThinking) {
@@ -236,6 +252,12 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
             console.log(`[claude] Stream finished in ${elapsed}s`);
           }
         });
+
+        // Post session info for local resume
+        if (sessionId) {
+          const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+          await say(sessionMsg);
+        }
       } catch (err: any) {
         console.log(`[claude] Unhandled error: ${err.message}`);
         await setStatus("");

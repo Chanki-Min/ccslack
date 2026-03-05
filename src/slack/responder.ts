@@ -19,6 +19,17 @@ export function formatMentionReply(result: ClaudeResult): SlackMessage[] {
   }));
 }
 
+export function formatSessionInfo(sessionId: string, repoPath: string, claudePath: string = "claude"): SlackMessage {
+  const resumeCmd = `cd ${repoPath} && ${claudePath} --resume ${sessionId}`;
+  return {
+    text: `Session: ${sessionId}`,
+    blocks: [{
+      type: "markdown" as const,
+      text: `---\n:link: \`${sessionId}\`\n\`\`\`\n${resumeCmd}\n\`\`\``,
+    }],
+  };
+}
+
 export function splitMessage(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
   const chunks: string[] = [];

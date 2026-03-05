@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { formatMentionReply, splitMessage } from "../../src/slack/responder";
+import { formatMentionReply, formatSessionInfo, splitMessage } from "../../src/slack/responder";
 import type { ClaudeResult } from "../../src/claude/runner";
 
 describe("formatMentionReply", () => {
@@ -60,6 +60,22 @@ describe("formatMentionReply", () => {
     const messages = formatMentionReply(result);
     expect(messages[0].text.length).toBeLessThanOrEqual(204); // 200 + "..."
     expect(messages[0].blocks[0].text.length).toBe(300); // full content in block
+  });
+});
+
+describe("formatSessionInfo", () => {
+  it("formats session info with resume command", () => {
+    const msg = formatSessionInfo("abc-123-def", "/Users/test/my-project");
+    expect(msg.text).toContain("abc-123-def");
+    expect(msg.blocks).toHaveLength(1);
+    expect(msg.blocks[0].type).toBe("markdown");
+    expect(msg.blocks[0].text).toContain("claude --resume abc-123-def");
+    expect(msg.blocks[0].text).toContain("cd /Users/test/my-project");
+  });
+
+  it("uses custom claudePath when provided", () => {
+    const msg = formatSessionInfo("abc-123", "/tmp/repo", "/usr/local/bin/claude");
+    expect(msg.blocks[0].text).toContain("/usr/local/bin/claude --resume abc-123");
   });
 });
 

@@ -6,6 +6,7 @@ export interface ClaudeOptions {
   allowedTools?: string[];
   maxOutputTokens?: number;
   model?: string;
+  sessionId?: string;
 }
 
 export type StreamEvent =
@@ -41,10 +42,11 @@ function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
 }
 
 function buildClaudeCmd(options: ClaudeOptions, extraFlags: string[] = []): string[] {
-  const { claudePath, prompt, model, allowedTools } = options;
+  const { claudePath, prompt, model, allowedTools, sessionId } = options;
   const cmd = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", ...extraFlags];
   if (model) cmd.push("--model", model);
   if (allowedTools?.length) cmd.push("--allowedTools", ...allowedTools);
+  if (sessionId) cmd.push("--session-id", sessionId);
   return cmd;
 }
 
