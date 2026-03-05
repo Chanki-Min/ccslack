@@ -1,41 +1,45 @@
 # CCSlack
 
-Slack AI Assistant를 통해 로컬 Claude Code CLI와 연결하는 브리지입니다. Slack의 AI Assistant 사이드 패널에서 메시지를 보내면, 로컬 머신에서 `claude -p`를 서브프로세스로 실행하고 결과를 실시간 스트리밍으로 돌려줍니다. 로컬에 설정된 MCP 서버와 커넥터를 그대로 활용할 수 있습니다.
+[한국어](./README.ko.md)
 
-## 주요 기능
+Bridge your Slack workspace to a local [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI. Chat with Claude through Slack's AI Assistant side panel, and it runs `claude -p` as a subprocess on your machine — with full access to your locally configured MCP servers, tools, and repos.
 
-- Slack AI Assistant 사이드 패널에서 직접 대화
-- Claude CLI 응답을 **실시간 스트리밍** (토큰 단위)
-- `repo:이름` 프리픽스로 작업할 레포지토리 지정
-- 스레드 대화 컨텍스트 자동 포함 (멀티턴)
-- `--allowedTools`로 MCP 도구 권한 자동 승인
-- 인메모리 작업 큐로 동시성 제어
-- 허가된 사용자만 사용 가능 (Slack User ID 기반)
+## Features
 
-## 설정
+- **Real-time streaming** — Token-by-token responses via Slack's `chatStream` API
+- **Slack AI Assistant** — Native side panel experience, no slash commands needed
+- **Channel mentions** — `@ccbot` mentions with threaded replies and reaction status
+- **Multi-repo** — Switch repos with `repo:name` prefix
+- **Thread context** — Prior conversation automatically included for multi-turn dialogue
+- **Session continuity** — Resume any Slack-initiated session locally with `claude --resume <id>`
+- **Tool allowlist** — Auto-approve MCP tools via `--allowedTools`
+- **Concurrency control** — In-memory task queue with configurable limits
+- **Auth** — Slack User ID allowlist
 
-### 1. Slack App 생성
+## Setup
 
-[api.slack.com/apps](https://api.slack.com/apps)에서 **Create New App** > **From Scratch**를 클릭합니다.
+### 1. Create a Slack App
 
-1. 앱 이름(예: `ccbot`)과 워크스페이스를 선택합니다.
-2. **Settings > Socket Mode**에서 Socket Mode를 켭니다.
-3. **App-Level Token**을 생성합니다. 이름(예: `ccslack-socket`)을 입력하고 `connections:write` 스코프를 추가합니다. `xapp-...` 토큰을 복사합니다.
-4. **Features > Agents & AI Apps**에서 기능을 **On**으로 활성화합니다. (`assistant:write` 스코프가 자동 추가됩니다.)
-5. **Features > OAuth & Permissions > Scopes**에서 Bot Token Scopes를 추가합니다:
-   - `assistant:write` (Agents & AI Apps 활성화 시 자동 추가)
+Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From Scratch**.
+
+1. Enter an app name (e.g., `ccbot`) and select your workspace.
+2. **Settings → Socket Mode** — Enable Socket Mode.
+3. **Create an App-Level Token** — Name it (e.g., `ccslack-socket`), add the `connections:write` scope. Copy the `xapp-...` token.
+4. **Features → Agents & AI Apps** — Toggle **On**. (`assistant:write` scope is added automatically.)
+5. **Features → OAuth & Permissions → Scopes** — Add Bot Token Scopes:
+   - `assistant:write` (auto-added from step 4)
    - `chat:write`
    - `im:history`
-6. **Features > Event Subscriptions**에서 이벤트를 켜고, **Subscribe to bot events**에 다음을 추가합니다:
+6. **Features → Event Subscriptions** — Enable events, then under **Subscribe to bot events** add:
    - `assistant_thread_started`
    - `assistant_thread_context_changed`
    - `message.im`
-7. **Features > App Home**에서 **Messages Tab**을 활성화하고, **"Allow users to send Slash commands and messages from the messages tab"**을 체크합니다.
-8. **Install App**에서 워크스페이스에 설치합니다. `xoxb-...` Bot Token을 복사합니다.
+7. **Features → App Home** — Enable **Messages Tab** and check **"Allow users to send Slash commands and messages from the messages tab"**.
+8. **Install App** — Install to your workspace. Copy the `xoxb-...` Bot Token.
 
-### 2. CCSlack 설정
+### 2. Configure CCSlack
 
-`~/.ccslack/config.json` 파일을 생성합니다:
+Create `~/.ccslack/config.json`:
 
 ```json
 {
@@ -45,74 +49,77 @@ Slack AI Assistant를 통해 로컬 Claude Code CLI와 연결하는 브리지입
   "defaultRepo": "my-project",
   "claudePath": "/usr/local/bin/claude",
   "repos": {
-    "my-project": "/Users/you/projects/my-project",
-    "frontend": "/Users/you/projects/frontend"
+    "my-project": "/home/you/projects/my-project",
+    "frontend": "/home/you/projects/frontend"
   },
   "allowedTools": ["Bash", "Read", "Edit", "Glob", "Grep", "Write", "mcp__*"],
   "suggestedPrompts": [
-    { "title": "코드 리뷰", "message": "최근 변경사항을 리뷰해줘" },
-    { "title": "버그 수정", "message": "테스트를 실행하고 실패하는 항목을 수정해줘" }
+    { "title": "Code review", "message": "Review recent changes" },
+    { "title": "Fix bugs", "message": "Run tests and fix failures" }
   ]
 }
 ```
 
-**Slack User ID 찾기:** Slack에서 프로필 사진 클릭 > **프로필** > 점 세 개 메뉴 > **멤버 ID 복사**
+**Finding your Slack User ID:** Click your profile picture in Slack → **Profile** → three-dot menu → **Copy member ID**.
 
-### 3. 환경 변수
+### 3. Environment Variables
 
-프로젝트 루트에 `.env` 파일을 생성합니다:
+Create a `.env` file in the project root:
 
 ```
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 SLACK_APP_TOKEN=xapp-your-app-token
 ```
 
-### 4. 실행
+### 4. Run
 
 ```bash
 bun install
 bun dev
 ```
 
-## 사용법
+## Usage
 
-Slack에서 봇의 DM을 열면 AI Assistant 사이드 패널이 나타납니다. suggested prompts를 선택하거나 직접 메시지를 입력하세요.
+Open the bot's DM in Slack — the AI Assistant side panel appears. Select a suggested prompt or type your own message.
 
 ```
-repo:my-project 로그인 버그 수정해줘
-repo:frontend auth 모듈 유닛 테스트 추가해줘
-README 오타 수정해줘
+repo:my-project fix the login bug
+repo:frontend add unit tests for the auth module
+fix the typo in README
 ```
 
-- **`repo:<이름>`** -- Claude를 실행할 레포지토리를 지정합니다. `config.repos`에서 이름을 찾거나, `repo:~/projects/app`처럼 직접 경로를 사용할 수 있습니다.
-- `repo:` 프리픽스가 없으면 `defaultRepo`가 사용됩니다.
-- 프리픽스 이후의 모든 텍스트가 Claude에 전달되는 프롬프트입니다.
-- 같은 스레드에서 대화를 이어가면 이전 대화가 컨텍스트로 포함됩니다.
+- **`repo:<name>`** — Specifies which repo to run Claude in. Looks up `config.repos` by name.
+- Without `repo:` prefix, `defaultRepo` is used.
+- Everything after the prefix is the prompt sent to Claude.
+- Continuing in the same thread includes prior conversation as context.
 
-## 동작 방식
+## How It Works
 
-1. Slack AI Assistant 사이드 패널에서 메시지를 보냅니다.
-2. `allowedUsers`에 포함된 사용자인지 확인합니다.
-3. 메시지에서 `repo:` 프리픽스와 프롬프트를 파싱합니다.
-4. 작업이 인메모리 큐에 추가됩니다 (`maxConcurrency` 제한).
-5. Claude CLI가 서브프로세스로 실행됩니다: `claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages --allowedTools ...`
-6. 응답이 `chatStream` API를 통해 **실시간 스트리밍**으로 Slack에 표시됩니다.
-7. Claude의 thinking 블록은 서버 로그에 기록됩니다.
+1. A message arrives via Slack AI Assistant side panel (or `@mention` in a channel).
+2. The sender is checked against `allowedUsers`.
+3. `repo:` prefix and prompt are parsed from the message.
+4. The task is queued (bounded by `maxConcurrency`).
+5. Claude CLI runs as a subprocess: `claude -p "<prompt>" --output-format stream-json --verbose --include-partial-messages --allowedTools ...`
+6. Response streams token-by-token to Slack via `chatStream` API.
+7. A session ID is posted so you can resume locally with `claude --resume <id>`.
 
-## 설정 레퍼런스
+## Config Reference
 
-| 필드 | 타입 | 기본값 | 설명 |
+| Field | Type | Default | Description |
 |---|---|---|---|
-| `allowedUsers` | `string[]` | (필수) | 사용이 허가된 Slack User ID 목록 |
-| `repos` | `Record<string, string>` | (필수) | 레포 단축 이름 -> 로컬 경로 매핑 |
-| `defaultRepo` | `string` | -- | `repo:` 프리픽스 없을 때 사용할 기본 레포 |
-| `claudePath` | `string` | `"claude"` | Claude CLI 바이너리 경로 |
-| `maxConcurrency` | `number` | `2` | 최대 동시 Claude 프로세스 수 |
-| `taskTimeout` | `number` | `300000` | 작업 타임아웃 (ms, 기본 5분) |
-| `allowedTools` | `string[]` | `[]` | 권한 프롬프트 없이 자동 승인할 도구 목록 |
-| `suggestedPrompts` | `Array<{title, message}>` | `[]` | 사이드 패널에 표시할 추천 프롬프트 |
+| `allowedUsers` | `string[]` | (required) | Slack User IDs allowed to use the bot |
+| `repos` | `Record<string, string>` | (required) | Repo alias → local path mapping |
+| `defaultRepo` | `string` | — | Default repo when `repo:` prefix is omitted |
+| `claudePath` | `string` | `"claude"` | Path to Claude CLI binary |
+| `maxConcurrency` | `number` | `2` | Max concurrent Claude processes |
+| `taskTimeout` | `number` | `300000` | Task timeout in ms (default 5 min) |
+| `allowedTools` | `string[]` | `[]` | Tools to auto-approve without permission prompts |
+| `maxOutputTokens` | `number` | — | Override Claude's max output tokens |
+| `defaultModel` | `string` | — | Default model (e.g., `"sonnet"`, `"opus"`) |
+| `enableSessionContinuity` | `boolean` | `true` | Post session ID for local resume |
+| `suggestedPrompts` | `Array<{title, message}>` | `[]` | Suggested prompts shown in the side panel |
 
-### `allowedTools` 예시
+### `allowedTools` Examples
 
 ```json
 "allowedTools": [
@@ -128,11 +135,15 @@ README 오타 수정해줘
 ]
 ```
 
-자세한 문법은 [Claude Code 권한 문서](https://docs.anthropic.com/en/docs/claude-code/permissions)를 참고하세요.
+See the [Claude Code permissions docs](https://docs.anthropic.com/en/docs/claude-code/permissions) for full syntax.
 
-## 기술 스택
+## Tech Stack
 
-- **런타임:** [Bun](https://bun.sh)
-- **Slack SDK:** [@slack/bolt](https://tools.slack.dev/bolt-js) v4.6 (AI Assistant API + Socket Mode)
-- **Claude CLI:** `claude -p` 서브프로세스 (stream-json 출력)
-- **언어:** TypeScript
+- **Runtime:** [Bun](https://bun.sh)
+- **Slack SDK:** [@slack/bolt](https://tools.slack.dev/bolt-js) v4 (AI Assistant API + Socket Mode)
+- **Claude CLI:** `claude -p` subprocess (stream-json output)
+- **Language:** TypeScript
+
+## License
+
+[MIT](./LICENSE)

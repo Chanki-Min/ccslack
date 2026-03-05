@@ -2,7 +2,8 @@
   "name": "ccslack",
   "module": "src/index.ts",
   "type": "module",
-  "private": true,
+  "description": "Bridge Slack to your local Claude Code CLI — real-time streaming, multi-repo support, and session continuity",
+  "license": "MIT",
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
