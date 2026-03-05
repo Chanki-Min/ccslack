@@ -2,13 +2,13 @@
 
 [한국어](./README.ko.md)
 
-Bridge your Slack workspace to a local [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI. Chat with Claude through Slack's AI Assistant side panel, and it runs `claude -p` as a subprocess on your machine — with full access to your locally configured MCP servers, tools, and repos.
+Bridge your Slack workspace to a local [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI. Chat with Claude through the AI Assistant side panel or `@mention` the bot in any channel — it runs `claude -p` as a subprocess on your machine with full access to your locally configured MCP servers, tools, and repos.
 
 ## Features
 
 - **Real-time streaming** — Token-by-token responses via Slack's `chatStream` API
-- **Slack AI Assistant** — Native side panel experience, no slash commands needed
-- **Channel mentions** — `@ccbot` mentions with threaded replies and reaction status
+- **AI Assistant side panel** — Native side panel experience via DM, no slash commands needed
+- **Channel mentions** — `@your-bot` in any channel for threaded replies with reaction status
 - **Multi-repo** — Switch repos with `repo:name` prefix
 - **Thread context** — Prior conversation automatically included for multi-turn dialogue
 - **Session continuity** — Resume any Slack-initiated session locally with `claude --resume <id>`
@@ -80,12 +80,16 @@ bun dev
 
 ## Usage
 
-Open the bot's DM in Slack — the AI Assistant side panel appears. Select a suggested prompt or type your own message.
+There are two ways to interact with the bot:
+
+**1. AI Assistant side panel** — Open the bot's DM in Slack. The AI Assistant side panel appears with suggested prompts and real-time streaming.
+
+**2. Channel mention** — Mention the bot by name (`@your-bot-name`) in any channel. The bot replies in a thread with reaction indicators (hourglass while processing, checkmark/cross when done).
 
 ```
-repo:my-project fix the login bug
-repo:frontend add unit tests for the auth module
-fix the typo in README
+@your-bot repo:my-project fix the login bug
+@your-bot repo:frontend add unit tests for the auth module
+@your-bot fix the typo in README
 ```
 
 - **`repo:<name>`** — Specifies which repo to run Claude in. Looks up `config.repos` by name.
@@ -95,7 +99,7 @@ fix the typo in README
 
 ## How It Works
 
-1. A message arrives via Slack AI Assistant side panel (or `@mention` in a channel).
+1. A message arrives via the AI Assistant side panel (DM) or `@mention` in a channel.
 2. The sender is checked against `allowedUsers`.
 3. `repo:` prefix and prompt are parsed from the message.
 4. The task is queued (bounded by `maxConcurrency`).
