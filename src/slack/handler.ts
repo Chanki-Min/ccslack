@@ -1,21 +1,16 @@
 import { Assistant } from "@slack/bolt";
-import type { CCSlackConfig } from "../config";
-import { parseMessage } from "./parser";
 import { runClaude, runClaudeStream } from "../claude/runner";
-import { formatMentionReply, formatSessionInfo } from "./responder";
+import type { CCSlackConfig } from "../config";
 import type { TaskQueue } from "../queue/taskQueue";
+import { parseMessage } from "./parser";
+import { formatMentionReply, formatSessionInfo } from "./responder";
 
-export function resolveRepoPath(
-  repo: string | null,
-  config: CCSlackConfig
-): string {
+export function resolveRepoPath(repo: string | null, config: CCSlackConfig): string {
   const repoName = repo ?? config.defaultRepo ?? null;
   const available = Object.keys(config.repos).join(", ");
 
   if (!repoName) {
-    throw new Error(
-      `No repo specified and no defaultRepo configured. Available: ${available}`
-    );
+    throw new Error(`No repo specified and no defaultRepo configured. Available: ${available}`);
   }
 
   // Only allow configured repo aliases — no arbitrary paths
@@ -35,7 +30,7 @@ async function fetchThreadContext(
   client: any,
   channel: string,
   threadTs: string | undefined,
-  currentTs: string
+  currentTs: string,
 ): Promise<string> {
   // Not in a thread — no prior context
   if (!threadTs) return "";
@@ -81,14 +76,20 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
 
     const { repo, model, prompt } = parseMessage(event.text || "");
     const resolvedModel = model ?? config.defaultModel;
-    console.log(`[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`);
+    console.log(
+      `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
+    );
 
     let repoPath: string;
     try {
       repoPath = resolveRepoPath(repo, config);
     } catch (err: any) {
       console.log(`[mention] Repo resolution failed: ${err.message}`);
-      await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, text: "알 수 없는 레포입니다. 설정을 확인해주세요." });
+      await client.chat.postMessage({
+        channel: event.channel,
+        thread_ts: event.ts,
+        text: "알 수 없는 레포입니다. 설정을 확인해주세요.",
+      });
       return;
     }
 
@@ -96,13 +97,17 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
 
     // Hourglass reaction + thread context in parallel
     const [, threadContext] = await Promise.all([
-      client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" }).catch(() => {}),
+      client.reactions
+        .add({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
+        .catch(() => {}),
       fetchThreadContext(client, event.channel, event.thread_ts, event.ts),
     ]);
     const fullPrompt = threadContext + prompt;
 
     const startTime = Date.now();
-    console.log(`[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`);
+    console.log(
+      `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
+    );
 
     try {
       const result = await queue.enqueue(() =>
@@ -115,13 +120,17 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           maxOutputTokens: config.maxOutputTokens,
           model: resolvedModel,
           sessionId,
-        })
+        }),
       );
 
       // Swap reaction, then send reply chunks sequentially for ordering
       await Promise.all([
-        client.reactions.remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" }).catch(() => {}),
-        client.reactions.add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" }).catch(() => {}),
+        client.reactions
+          .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
+          .catch(() => {}),
+        client.reactions
+          .add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" })
+          .catch(() => {}),
       ]);
       const messages = formatMentionReply(result);
       for (const msg of messages) {
@@ -139,9 +148,15 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
     } catch (err: any) {
       console.log(`[claude] Mention handler error: ${err.message}`);
       await Promise.all([
-        client.reactions.remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" }).catch(() => {}),
+        client.reactions
+          .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
+          .catch(() => {}),
         client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "x" }).catch(() => {}),
-        client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, text: "오류가 발생했습니다. 서버 로그를 확인해주세요." }),
+        client.chat.postMessage({
+          channel: event.channel,
+          thread_ts: event.ts,
+          text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
+        }),
       ]);
     }
   };
@@ -164,16 +179,21 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
         return;
       }
 
+      // Narrow event to a normal message (guaranteed by guard above)
+      const ev = event as { user: string; text: string; channel: string; ts: string; thread_ts?: string };
+
       // Auth check
-      if (!config.allowedUsers.includes(event.user)) {
-        console.log(`[auth] Ignored message from unauthorized user: ${event.user}`);
+      if (!config.allowedUsers.includes(ev.user)) {
+        console.log(`[auth] Ignored message from unauthorized user: ${ev.user}`);
         await say({ text: "권한이 없습니다." });
         return;
       }
 
-      const { repo, model, prompt } = parseMessage(event.text || "");
+      const { repo, model, prompt } = parseMessage(ev.text || "");
       const resolvedModel = model ?? config.defaultModel;
-      console.log(`[task] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`);
+      console.log(
+        `[task] New request from ${ev.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
+      );
 
       let repoPath: string;
       try {
@@ -192,7 +212,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
       const [, , threadContext] = await Promise.all([
         setTitle(prompt.slice(0, 50)),
         setStatus("Thinking..."),
-        fetchThreadContext(client, event.channel, event.thread_ts, event.ts),
+        fetchThreadContext(client, ev.channel, ev.thread_ts, ev.ts),
       ]);
       const fullPrompt = threadContext + prompt;
 
@@ -203,9 +223,9 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
       try {
         await queue.enqueue(async () => {
           const streamer = client.chatStream({
-            channel: event.channel,
-            thread_ts: event.thread_ts || event.ts,
-            recipient_user_id: event.user,
+            channel: ev.channel,
+            thread_ts: ev.thread_ts || ev.ts,
+            recipient_user_id: ev.user,
           });
 
           try {
@@ -237,7 +257,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
                   lastStatusUpdate = now;
                 }
               } else if (evt.type === "thinking") {
-                const preview = evt.thinking.length > 200 ? evt.thinking.slice(0, 200) + "..." : evt.thinking;
+                const preview = evt.thinking.length > 200 ? `${evt.thinking.slice(0, 200)}...` : evt.thinking;
                 console.log(`[thinking] ${preview}`);
               } else if (evt.type === "error") {
                 console.log(`[claude] Error: ${evt.error}`);

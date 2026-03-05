@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "fs";
+import { existsSync, readFileSync } from "node:fs";
 
 export interface CCSlackConfig {
   allowedUsers: string[];

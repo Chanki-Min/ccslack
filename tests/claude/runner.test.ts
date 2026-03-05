@@ -1,7 +1,7 @@
-import { describe, it, expect } from "bun:test";
-import { runClaude, parseStreamJson, runClaudeStream, StreamEvent } from "../../src/claude/runner";
-import { writeFileSync, unlinkSync } from "fs";
-import { join } from "path";
+import { describe, expect, it } from "bun:test";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { parseStreamJson, runClaude, runClaudeStream, type StreamEvent } from "../../src/claude/runner";
 
 describe("runClaude", () => {
   it("runs a command and returns output", async () => {
@@ -83,7 +83,7 @@ echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"typ
 echo '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"let me think"},{"type":"text","text":"hello world"}]}}'
 echo '{"type":"result","result":"final answer"}'
 `,
-      { mode: 0o755 }
+      { mode: 0o755 },
     );
 
     try {

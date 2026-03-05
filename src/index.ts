@@ -1,5 +1,5 @@
 import { App } from "@slack/bolt";
-import { loadConfig, DEFAULT_CONFIG_PATH } from "./config";
+import { DEFAULT_CONFIG_PATH, loadConfig } from "./config";
 import { TaskQueue } from "./queue/taskQueue";
 import { createAssistant, createMentionHandler } from "./slack/handler";
 

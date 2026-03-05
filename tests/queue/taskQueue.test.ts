@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { TaskQueue } from "../../src/queue/taskQueue";
 
 describe("TaskQueue", () => {
@@ -35,7 +35,7 @@ describe("TaskQueue", () => {
     expect(
       queue.enqueue(async () => {
         throw new Error("fail");
-      })
+      }),
     ).rejects.toThrow("fail");
   });
 

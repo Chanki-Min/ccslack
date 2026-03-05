@@ -12,7 +12,7 @@ export function parseMessage(text: string): ParsedMessage {
   const repoMatch = cleaned.match(/repo:(\S+)/);
   let repo: string | null = null;
   if (repoMatch) {
-    repo = repoMatch[1];
+    repo = repoMatch[1] ?? null;
     cleaned = cleaned.replace(/repo:\S+/, "").trim();
   }
 
@@ -20,7 +20,7 @@ export function parseMessage(text: string): ParsedMessage {
   const modelMatch = cleaned.match(/model:(\S+)/);
   let model: string | null = null;
   if (modelMatch) {
-    model = modelMatch[1];
+    model = modelMatch[1] ?? null;
     cleaned = cleaned.replace(/model:\S+/, "").trim();
   }
 

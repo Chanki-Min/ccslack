@@ -7,9 +7,13 @@
   "scripts": {
     "dev": "bun run src/index.ts",
     "start": "bun run src/index.ts",
-    "test": "bun test"
+    "test": "bun test",
+    "lint": "bunx biome check src/ tests/",
+    "lint:fix": "bunx biome check --write src/ tests/",
+    "format": "bunx biome format --write src/ tests/"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
     "@types/bun": "latest"
   },
   "peerDependencies": {

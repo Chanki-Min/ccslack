@@ -1,6 +1,6 @@
-import { describe, it, expect } from "bun:test";
-import { resolveRepoPath } from "../../src/slack/handler";
+import { describe, expect, it } from "bun:test";
 import type { CCSlackConfig } from "../../src/config";
+import { resolveRepoPath } from "../../src/slack/handler";
 
 const mockConfig: CCSlackConfig = {
   allowedUsers: ["U123"],

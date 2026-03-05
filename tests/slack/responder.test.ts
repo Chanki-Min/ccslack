@@ -1,6 +1,6 @@
-import { describe, it, expect } from "bun:test";
-import { formatMentionReply, formatSessionInfo, splitMessage } from "../../src/slack/responder";
+import { describe, expect, it } from "bun:test";
 import type { ClaudeResult } from "../../src/claude/runner";
+import { formatMentionReply, formatSessionInfo, splitMessage } from "../../src/slack/responder";
 
 describe("formatMentionReply", () => {
   it("returns single message with markdown block for short result", () => {
@@ -10,11 +10,11 @@ describe("formatMentionReply", () => {
     };
     const messages = formatMentionReply(result);
     expect(messages).toHaveLength(1);
-    expect(messages[0].blocks).toHaveLength(1);
-    expect(messages[0].blocks[0].type).toBe("markdown");
-    expect(messages[0].blocks[0].text).toContain("Fixed the bug");
+    expect(messages[0]!.blocks).toHaveLength(1);
+    expect(messages[0]!.blocks[0]!.type).toBe("markdown");
+    expect(messages[0]!.blocks[0]!.text).toContain("Fixed the bug");
     // text is fallback for notifications
-    expect(messages[0].text).toBeDefined();
+    expect(messages[0]!.text).toBeDefined();
   });
 
   it("splits output exceeding 12000 chars into multiple messages", () => {
@@ -27,8 +27,8 @@ describe("formatMentionReply", () => {
     expect(messages.length).toBeGreaterThan(1);
     for (const msg of messages) {
       expect(msg.blocks).toHaveLength(1);
-      expect(msg.blocks[0].type).toBe("markdown");
-      expect(msg.blocks[0].text.length).toBeLessThanOrEqual(12000);
+      expect(msg.blocks[0]!.type).toBe("markdown");
+      expect(msg.blocks[0]!.text.length).toBeLessThanOrEqual(12000);
     }
   });
 
@@ -40,7 +40,7 @@ describe("formatMentionReply", () => {
     };
     const messages = formatMentionReply(result);
     expect(messages).toHaveLength(1);
-    expect(messages[0].blocks[0].text).toContain("Process timed out");
+    expect(messages[0]!.blocks[0]!.text).toContain("Process timed out");
   });
 
   it("handles missing error field on failure", () => {
@@ -49,7 +49,7 @@ describe("formatMentionReply", () => {
       output: "",
     };
     const messages = formatMentionReply(result);
-    expect(messages[0].blocks[0].text).toContain("Unknown error");
+    expect(messages[0]!.blocks[0]!.text).toContain("Unknown error");
   });
 
   it("truncates fallback text to 200 chars", () => {
@@ -58,8 +58,8 @@ describe("formatMentionReply", () => {
       output: "x".repeat(300),
     };
     const messages = formatMentionReply(result);
-    expect(messages[0].text.length).toBeLessThanOrEqual(204); // 200 + "..."
-    expect(messages[0].blocks[0].text.length).toBe(300); // full content in block
+    expect(messages[0]!.text.length).toBeLessThanOrEqual(204); // 200 + "..."
+    expect(messages[0]!.blocks[0]!.text.length).toBe(300); // full content in block
   });
 });
 
@@ -68,14 +68,14 @@ describe("formatSessionInfo", () => {
     const msg = formatSessionInfo("abc-123-def", "/Users/test/my-project");
     expect(msg.text).toContain("abc-123-def");
     expect(msg.blocks).toHaveLength(1);
-    expect(msg.blocks[0].type).toBe("markdown");
-    expect(msg.blocks[0].text).toContain("claude --resume abc-123-def");
-    expect(msg.blocks[0].text).toContain("cd /Users/test/my-project");
+    expect(msg.blocks[0]!.type).toBe("markdown");
+    expect(msg.blocks[0]!.text).toContain("claude --resume abc-123-def");
+    expect(msg.blocks[0]!.text).toContain("cd /Users/test/my-project");
   });
 
   it("uses custom claudePath when provided", () => {
     const msg = formatSessionInfo("abc-123", "/tmp/repo", "/usr/local/bin/claude");
-    expect(msg.blocks[0].text).toContain("/usr/local/bin/claude --resume abc-123");
+    expect(msg.blocks[0]!.text).toContain("/usr/local/bin/claude --resume abc-123");
   });
 });
 

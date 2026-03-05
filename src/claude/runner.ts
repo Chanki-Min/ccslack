@@ -23,8 +23,16 @@ export interface ClaudeResult {
 }
 
 const ENV_ALLOWLIST = [
-  "PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "TERM",
-  "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+  "PATH",
+  "HOME",
+  "USER",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TMPDIR",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
   "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
 ] as const;
 
@@ -227,7 +235,7 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
       // Log thinking blocks
       if (thinking.length > 0) {
         for (const thought of thinking) {
-          const preview = thought.length > 200 ? thought.slice(0, 200) + "..." : thought;
+          const preview = thought.length > 200 ? `${thought.slice(0, 200)}...` : thought;
           console.log(`[thinking] ${preview}`);
         }
       }

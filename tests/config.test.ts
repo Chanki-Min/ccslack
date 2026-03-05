@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { loadConfig } from "../src/config.ts";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
-import { join } from "path";
 
 const TEST_CONFIG_DIR = join(import.meta.dir, ".test-ccslack");
 const TEST_CONFIG_PATH = join(TEST_CONFIG_DIR, "config.json");
