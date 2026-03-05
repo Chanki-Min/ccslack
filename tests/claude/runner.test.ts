@@ -54,6 +54,7 @@ describe("runClaudeStream", () => {
     writeFileSync(
       script,
       `#!/bin/bash
+echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"let me consider"}}}'
 echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"hello "}}}'
 echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"world"}}}'
 echo '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"let me think"},{"type":"text","text":"hello world"}]}}'
@@ -73,6 +74,8 @@ echo '{"type":"result","result":"final answer"}'
         events.push(evt);
       }
 
+      // stream_event thinking_delta
+      expect(events).toContainEqual({ type: "thinking_delta", thinking: "let me consider" });
       // stream_event text_delta tokens
       expect(events).toContainEqual({ type: "text_delta", text: "hello " });
       expect(events).toContainEqual({ type: "text_delta", text: "world" });

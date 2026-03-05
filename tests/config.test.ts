@@ -97,4 +97,38 @@ describe("loadConfig", () => {
     expect(result.allowedTools).toEqual([]);
     expect(result.suggestedPrompts).toEqual([]);
   });
+
+  it("defaults maxOutputTokens to 128000", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.maxOutputTokens).toBe(128000);
+  });
+
+  it("loads defaultModel from config", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      defaultModel: "sonnet",
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.defaultModel).toBe("sonnet");
+  });
+
+  it("defaults defaultModel to undefined", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.defaultModel).toBeUndefined();
+  });
 });

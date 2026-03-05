@@ -25,9 +25,12 @@ describe("resolveRepoPath", () => {
     expect(path).toBe("/Users/test/projects/default");
   });
 
-  it("returns absolute path as-is", () => {
-    const path = resolveRepoPath("/tmp/some-repo", mockConfig);
-    expect(path).toBe("/tmp/some-repo");
+  it("rejects absolute paths", () => {
+    expect(() => resolveRepoPath("/tmp/some-repo", mockConfig)).toThrow();
+  });
+
+  it("rejects home-relative paths", () => {
+    expect(() => resolveRepoPath("~/some-repo", mockConfig)).toThrow();
   });
 
   it("throws for unknown repo with no default", () => {

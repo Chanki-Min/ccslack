@@ -52,4 +52,19 @@ describe("TaskQueue", () => {
 
     expect(queue.pendingCount).toBe(1);
   });
+
+  it("rejects when queue is full", async () => {
+    const queue = new TaskQueue(1, 2);
+
+    // Fill the concurrency slot
+    queue.enqueue(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+    // Fill queue slots
+    queue.enqueue(async () => {});
+    queue.enqueue(async () => {});
+
+    // This should be rejected
+    expect(queue.enqueue(async () => {})).rejects.toThrow("Queue is full");
+  });
 });

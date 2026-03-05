@@ -1,21 +1,16 @@
-export interface ClaudeRunOptions {
+export interface ClaudeOptions {
   prompt: string;
   cwd: string;
   claudePath: string;
   timeout: number;
   allowedTools?: string[];
-}
-
-export interface ClaudeStreamOptions {
-  prompt: string;
-  cwd: string;
-  claudePath: string;
-  timeout: number;
-  allowedTools?: string[];
+  maxOutputTokens?: number;
+  model?: string;
 }
 
 export type StreamEvent =
   | { type: "text_delta"; text: string }
+  | { type: "thinking_delta"; thinking: string }
   | { type: "thinking"; thinking: string }
   | { type: "result"; text: string }
   | { type: "error"; error: string };
@@ -24,6 +19,23 @@ export interface ClaudeResult {
   success: boolean;
   output: string;
   error?: string;
+}
+
+const ENV_ALLOWLIST = [
+  "PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "TERM",
+  "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+  "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+] as const;
+
+function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of ENV_ALLOWLIST) {
+    if (process.env[key]) env[key] = process.env[key]!;
+  }
+  if (maxOutputTokens) {
+    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(maxOutputTokens);
+  }
+  return env;
 }
 
 export function parseStreamJson(rawOutput: string): { text: string; thinking: string[] } {
@@ -56,10 +68,13 @@ export function parseStreamJson(rawOutput: string): { text: string; thinking: st
   return { text, thinking };
 }
 
-export async function* runClaudeStream(options: ClaudeStreamOptions): AsyncGenerator<StreamEvent> {
-  const { prompt, cwd, claudePath, timeout, allowedTools } = options;
+export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<StreamEvent> {
+  const { prompt, cwd, claudePath, timeout, allowedTools, maxOutputTokens, model } = options;
 
   const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
+  if (model) {
+    cmd.push("--model", model);
+  }
   if (allowedTools && allowedTools.length > 0) {
     cmd.push("--allowedTools", ...allowedTools);
   }
@@ -71,6 +86,7 @@ export async function* runClaudeStream(options: ClaudeStreamOptions): AsyncGener
     cwd,
     stdout: "pipe",
     stderr: "pipe",
+    env: buildClaudeEnv(maxOutputTokens),
   });
 
   const timeoutPromise = new Promise<void>((resolve) => {
@@ -97,6 +113,9 @@ export async function* runClaudeStream(options: ClaudeStreamOptions): AsyncGener
         if (evt.type === "content_block_delta" && evt.delta) {
           if (evt.delta.type === "text_delta" && evt.delta.text) {
             pendingEvents.push({ type: "text_delta", text: evt.delta.text });
+          }
+          if (evt.delta.type === "thinking_delta" && evt.delta.thinking) {
+            pendingEvents.push({ type: "thinking_delta", thinking: evt.delta.thinking });
           }
         }
       }
@@ -173,11 +192,14 @@ export async function* runClaudeStream(options: ClaudeStreamOptions): AsyncGener
   }
 }
 
-export async function runClaude(options: ClaudeRunOptions): Promise<ClaudeResult> {
-  const { prompt, cwd, claudePath, timeout, allowedTools } = options;
+export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
+  const { prompt, cwd, claudePath, timeout, allowedTools, maxOutputTokens, model } = options;
 
   try {
     const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose"];
+    if (model) {
+      cmd.push("--model", model);
+    }
     if (allowedTools && allowedTools.length > 0) {
       cmd.push("--allowedTools", ...allowedTools);
     }
@@ -185,6 +207,7 @@ export async function runClaude(options: ClaudeRunOptions): Promise<ClaudeResult
       cwd,
       stdout: "pipe",
       stderr: "pipe",
+      env: buildClaudeEnv(maxOutputTokens),
     });
 
     let timer: ReturnType<typeof setTimeout>;

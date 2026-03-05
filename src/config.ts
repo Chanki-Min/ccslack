@@ -9,6 +9,8 @@ export interface CCSlackConfig {
   repos: Record<string, string>;
   allowedTools?: string[];
   suggestedPrompts?: Array<{ title: string; message: string }>;
+  maxOutputTokens?: number;
+  defaultModel?: string;
 }
 
 const DEFAULTS: Partial<CCSlackConfig> = {
@@ -17,6 +19,7 @@ const DEFAULTS: Partial<CCSlackConfig> = {
   claudePath: "claude",
   allowedTools: [],
   suggestedPrompts: [],
+  maxOutputTokens: 128000,
 };
 
 export function loadConfig(configPath: string): CCSlackConfig {

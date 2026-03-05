@@ -1,35 +1,46 @@
 import { describe, it, expect } from "bun:test";
-import { formatThreadReply, splitMessage } from "../../src/slack/responder";
+import { formatMentionReply, splitMessage } from "../../src/slack/responder";
 import type { ClaudeResult } from "../../src/claude/runner";
 
-describe("formatThreadReply", () => {
-  it("formats a successful result", () => {
+describe("formatMentionReply", () => {
+  it("returns single message with markdown block for short result", () => {
     const result: ClaudeResult = {
       success: true,
       output: "Fixed the bug in auth.ts\nChanged 3 files",
     };
-    const reply = formatThreadReply(result);
-    expect(reply).toContain("Fixed the bug");
+    const messages = formatMentionReply(result);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].blocks).toHaveLength(1);
+    expect(messages[0].blocks[0].type).toBe("markdown");
+    expect(messages[0].blocks[0].text).toContain("Fixed the bug");
+    // text is fallback for notifications
+    expect(messages[0].text).toBeDefined();
   });
 
-  it("formats a failed result", () => {
+  it("splits output exceeding 12000 chars into multiple messages", () => {
+    const lines = Array.from({ length: 500 }, (_, i) => `Line ${i}: ${"x".repeat(50)}`);
+    const result: ClaudeResult = {
+      success: true,
+      output: lines.join("\n"),
+    };
+    const messages = formatMentionReply(result);
+    expect(messages.length).toBeGreaterThan(1);
+    for (const msg of messages) {
+      expect(msg.blocks).toHaveLength(1);
+      expect(msg.blocks[0].type).toBe("markdown");
+      expect(msg.blocks[0].text.length).toBeLessThanOrEqual(12000);
+    }
+  });
+
+  it("formats error result with markdown block", () => {
     const result: ClaudeResult = {
       success: false,
       output: "",
       error: "Process timed out",
     };
-    const reply = formatThreadReply(result);
-    expect(reply).toContain("Process timed out");
-  });
-
-  it("truncates long output to 500 chars", () => {
-    const result: ClaudeResult = {
-      success: true,
-      output: "x".repeat(600),
-    };
-    const reply = formatThreadReply(result);
-    expect(reply.length).toBeLessThanOrEqual(503); // 500 + "..."
-    expect(reply).toEndWith("...");
+    const messages = formatMentionReply(result);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].blocks[0].text).toContain("Process timed out");
   });
 
   it("handles missing error field on failure", () => {
@@ -37,8 +48,18 @@ describe("formatThreadReply", () => {
       success: false,
       output: "",
     };
-    const reply = formatThreadReply(result);
-    expect(reply).toContain("Unknown error");
+    const messages = formatMentionReply(result);
+    expect(messages[0].blocks[0].text).toContain("Unknown error");
+  });
+
+  it("truncates fallback text to 200 chars", () => {
+    const result: ClaudeResult = {
+      success: true,
+      output: "x".repeat(300),
+    };
+    const messages = formatMentionReply(result);
+    expect(messages[0].text.length).toBeLessThanOrEqual(204); // 200 + "..."
+    expect(messages[0].blocks[0].text.length).toBe(300); // full content in block
   });
 });
 

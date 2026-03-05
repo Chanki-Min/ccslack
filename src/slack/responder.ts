@@ -1,12 +1,22 @@
 import type { ClaudeResult } from "../claude/runner";
 
-export function formatThreadReply(result: ClaudeResult): string {
-  if (result.success) {
-    return result.output.length > 500
-      ? result.output.substring(0, 500) + "..."
-      : result.output;
-  }
-  return `Error: ${result.error || "Unknown error"}`;
+const MARKDOWN_BLOCK_LIMIT = 12000;
+
+export interface SlackMessage {
+  text: string;
+  blocks: Array<{ type: "markdown"; text: string }>;
+}
+
+export function formatMentionReply(result: ClaudeResult): SlackMessage[] {
+  const content = result.success
+    ? result.output
+    : `Error: ${result.error || "Unknown error"}`;
+
+  const chunks = splitMessage(content, MARKDOWN_BLOCK_LIMIT);
+  return chunks.map((chunk) => ({
+    text: chunk.length > 200 ? chunk.slice(0, 200) + "..." : chunk,
+    blocks: [{ type: "markdown" as const, text: chunk }],
+  }));
 }
 
 export function splitMessage(text: string, maxLength: number): string[] {

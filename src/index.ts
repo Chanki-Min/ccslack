@@ -1,7 +1,7 @@
 import { App } from "@slack/bolt";
 import { loadConfig, DEFAULT_CONFIG_PATH } from "./config";
 import { TaskQueue } from "./queue/taskQueue";
-import { createAssistant } from "./slack/handler";
+import { createAssistant, createMentionHandler } from "./slack/handler";
 
 const configPath = process.env.CCSLACK_CONFIG || DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -20,6 +20,8 @@ const app = new App({
 const queue = new TaskQueue(config.maxConcurrency);
 const assistant = createAssistant(config, queue);
 app.assistant(assistant);
+
+app.event("app_mention", createMentionHandler(config, queue));
 
 (async () => {
   await app.start();
