@@ -10,9 +10,9 @@ export function resolveRepoPath(
   config: CCSlackConfig
 ): string {
   const repoName = repo ?? config.defaultRepo ?? null;
+  const available = Object.keys(config.repos).join(", ");
 
   if (!repoName) {
-    const available = Object.keys(config.repos).join(", ");
     throw new Error(
       `No repo specified and no defaultRepo configured. Available: ${available}`
     );
@@ -21,7 +21,6 @@ export function resolveRepoPath(
   // Only allow configured repo aliases — no arbitrary paths
   const resolved = config.repos[repoName];
   if (!resolved) {
-    const available = Object.keys(config.repos).join(", ");
     throw new Error(`Unknown repo: "${repoName}". Available: ${available}`);
   }
 
@@ -173,16 +172,13 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
       }
 
       console.log(`[task] Resolved repo path: ${repoPath}`);
-      await setTitle(prompt.slice(0, 50));
-      await setStatus("Thinking...");
 
-      // Thread context
-      const threadContext = await fetchThreadContext(
-        client,
-        event.channel,
-        event.thread_ts,
-        event.ts
-      );
+      // Title, status, and thread context are independent — run in parallel
+      const [, , threadContext] = await Promise.all([
+        setTitle(prompt.slice(0, 50)),
+        setStatus("Thinking..."),
+        fetchThreadContext(client, event.channel, event.thread_ts, event.ts),
+      ]);
       const fullPrompt = threadContext + prompt;
 
       // Queue + Stream
@@ -198,7 +194,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
           });
 
           try {
-            let thinkingChars = 0;
+            let hasThinking = false;
             let lastStatusUpdate = 0;
 
             for await (const evt of runClaudeStream({
@@ -211,13 +207,13 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
               model: resolvedModel,
             })) {
               if (evt.type === "text_delta") {
-                if (thinkingChars > 0) {
+                if (hasThinking) {
                   await setStatus("Responding...");
-                  thinkingChars = 0;
+                  hasThinking = false;
                 }
                 await streamer.append({ markdown_text: evt.text });
               } else if (evt.type === "thinking_delta") {
-                thinkingChars += evt.thinking.length;
+                hasThinking = true;
                 const now = Date.now();
                 if (now - lastStatusUpdate >= 2000) {
                   const elapsed = Math.round((now - startTime) / 1000);

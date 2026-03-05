@@ -27,15 +27,25 @@ const ENV_ALLOWLIST = [
   "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
 ] as const;
 
-function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
+const BASE_ENV: Record<string, string> = (() => {
   const env: Record<string, string> = {};
   for (const key of ENV_ALLOWLIST) {
     if (process.env[key]) env[key] = process.env[key]!;
   }
-  if (maxOutputTokens) {
-    env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(maxOutputTokens);
-  }
   return env;
+})();
+
+function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
+  if (!maxOutputTokens) return BASE_ENV;
+  return { ...BASE_ENV, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) };
+}
+
+function buildClaudeCmd(options: ClaudeOptions, extraFlags: string[] = []): string[] {
+  const { claudePath, prompt, model, allowedTools } = options;
+  const cmd = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", ...extraFlags];
+  if (model) cmd.push("--model", model);
+  if (allowedTools?.length) cmd.push("--allowedTools", ...allowedTools);
+  return cmd;
 }
 
 export function parseStreamJson(rawOutput: string): { text: string; thinking: string[] } {
@@ -69,15 +79,8 @@ export function parseStreamJson(rawOutput: string): { text: string; thinking: st
 }
 
 export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<StreamEvent> {
-  const { prompt, cwd, claudePath, timeout, allowedTools, maxOutputTokens, model } = options;
-
-  const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
-  if (model) {
-    cmd.push("--model", model);
-  }
-  if (allowedTools && allowedTools.length > 0) {
-    cmd.push("--allowedTools", ...allowedTools);
-  }
+  const { cwd, timeout, maxOutputTokens } = options;
+  const cmd = buildClaudeCmd(options, ["--include-partial-messages"]);
 
   let timedOut = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -175,8 +178,6 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
       pendingEvents.length = 0;
     }
 
-    clearTimeout(timer);
-
     const exitCode = await proc.exited;
     if (exitCode !== 0) {
       const stderr = await new Response(proc.stderr).text();
@@ -193,16 +194,10 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
 }
 
 export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
-  const { prompt, cwd, claudePath, timeout, allowedTools, maxOutputTokens, model } = options;
+  const { cwd, timeout, maxOutputTokens } = options;
 
   try {
-    const cmd: string[] = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose"];
-    if (model) {
-      cmd.push("--model", model);
-    }
-    if (allowedTools && allowedTools.length > 0) {
-      cmd.push("--allowedTools", ...allowedTools);
-    }
+    const cmd = buildClaudeCmd(options);
     const proc = Bun.spawn(cmd, {
       cwd,
       stdout: "pipe",
@@ -219,9 +214,11 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     });
 
     const resultPromise = (async () => {
-      const stdout = await new Response(proc.stdout).text();
-      const stderr = await new Response(proc.stderr).text();
-      const exitCode = await proc.exited;
+      const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
 
       const { text, thinking } = parseStreamJson(stdout);
 
