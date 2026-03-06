@@ -191,7 +191,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       // Post session info
       if (sessionId) {
         const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        await postReplyOrEphemeral(client, { channel: event.channel, threadTs: event.thread_ts, user: event.user, noreply }, sessionMsg);
+        await postReplyOrEphemeral(client, { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply }, sessionMsg);
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -203,7 +203,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
           .catch(() => {}),
         client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "x" }).catch(() => {}),
-        postReplyOrEphemeral(client, { channel: event.channel, threadTs: event.thread_ts, user: event.user, noreply }, { text: "오류가 발생했습니다. 서버 로그를 확인해주세요." }),
+        postReplyOrEphemeral(client, { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply }, { text: "오류가 발생했습니다. 서버 로그를 확인해주세요." }),
       ]);
     }
   };
