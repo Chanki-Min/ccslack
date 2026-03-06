@@ -15,6 +15,7 @@ Bridge your Slack workspace to a local [Claude Code](https://docs.anthropic.com/
 - **Session continuity** — Resume any Slack-initiated session locally with `claude --resume <id>`
 - **Tool allowlist** — Auto-approve MCP tools via `--allowedTools`
 - **Concurrency control** — In-memory task queue with configurable limits
+- **Reaction cancel** — Add an `x` reaction to any bot-triggered message to cancel the running task
 - **Auth** — Slack User ID allowlist
 
 ## Setup
@@ -31,10 +32,12 @@ Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** �
    - `assistant:write` (auto-added from step 4)
    - `chat:write`
    - `im:history`
+   - `reactions:read`
 6. **Features → Event Subscriptions** — Enable events, then under **Subscribe to bot events** add:
    - `assistant_thread_started`
    - `assistant_thread_context_changed`
    - `message.im`
+   - `reaction_added`
 7. **Features → App Home** — Enable **Messages Tab** and check **"Allow users to send Slash commands and messages from the messages tab"**.
 8. **Install App** — Install to your workspace. Copy the `xoxb-...` Bot Token.
 

@@ -15,6 +15,7 @@ Slack과 로컬 Claude Code CLI를 연결하는 브리지입니다. AI Assistant
 - **세션 연속성** — Slack에서 시작한 세션을 로컬에서 `claude --resume <id>`로 이어받기
 - `--allowedTools`로 MCP 도구 권한 자동 승인
 - 인메모리 작업 큐로 동시성 제어
+- **리액션 취소** — 진행 중인 메시지에 `x` 리액션을 달면 작업을 즉시 중지
 - 허가된 사용자만 사용 가능 (Slack User ID 기반)
 
 ## 설정
@@ -31,10 +32,12 @@ Slack과 로컬 Claude Code CLI를 연결하는 브리지입니다. AI Assistant
    - `assistant:write` (Agents & AI Apps 활성화 시 자동 추가)
    - `chat:write`
    - `im:history`
+   - `reactions:read`
 6. **Features > Event Subscriptions**에서 이벤트를 켜고, **Subscribe to bot events**에 다음을 추가합니다:
    - `assistant_thread_started`
    - `assistant_thread_context_changed`
    - `message.im`
+   - `reaction_added`
 7. **Features > App Home**에서 **Messages Tab**을 활성화하고, **"Allow users to send Slash commands and messages from the messages tab"**을 체크합니다.
 8. **Install App**에서 워크스페이스에 설치합니다. `xoxb-...` Bot Token을 복사합니다.
 
