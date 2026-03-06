@@ -103,10 +103,10 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       return;
     }
 
-    const { repo, model, session: parsedSession, prompt } = parseMessage(event.text || "");
+    const { repo, model, session: parsedSession, noreply, prompt } = parseMessage(event.text || "");
     const resolvedModel = model ?? config.defaultModel;
     console.log(
-      `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
+      `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | noreply: ${noreply} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
     );
 
     let resolved: ResolvedRepo;
@@ -168,15 +168,27 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" })
           .catch(() => {}),
       ]);
-      const messages = formatMentionReply(result);
-      for (const msg of messages) {
-        await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+      // noreply: skip thread reply, send session info only to requester via ephemeral
+      if (!noreply) {
+        const messages = formatMentionReply(result);
+        for (const msg of messages) {
+          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+        }
       }
 
-      // Post session info for local resume
+      // Post session info
       if (sessionId) {
         const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
+        if (noreply) {
+          await client.chat.postEphemeral({
+            channel: event.channel,
+            user: event.user,
+            thread_ts: event.ts,
+            ...sessionMsg,
+          });
+        } else {
+          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
+        }
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
