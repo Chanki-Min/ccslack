@@ -21,8 +21,8 @@ export function parseMessage(text: string): ParsedMessage {
   const { value: model, remaining: r2 } = extractPrefix(r1, "model");
   const { value: session, remaining: r3 } = extractPrefix(r2, "session");
 
-  const noreply = /\bnoreply\b/.test(r3);
   const r4 = r3.replace(/\bnoreply\b/, "").trim();
+  const noreply = r4 !== r3;
 
   const prompt = r4.replace(/\s+/g, " ").trim();
 

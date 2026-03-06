@@ -6,6 +6,18 @@ import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
 import { formatMentionReply, formatSessionInfo } from "./responder";
 
+async function postReplyOrEphemeral(
+  client: any,
+  { channel, threadTs, user, noreply }: { channel: string; threadTs: string; user: string; noreply: boolean },
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (noreply) {
+    await client.chat.postEphemeral({ channel, user, ...payload });
+  } else {
+    await client.chat.postMessage({ channel, thread_ts: threadTs, ...payload });
+  }
+}
+
 export interface ResolvedRepo {
   repoName: string;
   repoPath: string;
@@ -179,15 +191,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       // Post session info
       if (sessionId) {
         const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        if (noreply) {
-          await client.chat.postEphemeral({
-            channel: event.channel,
-            user: event.user,
-            ...sessionMsg,
-          });
-        } else {
-          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
-        }
+        await postReplyOrEphemeral(client, { channel: event.channel, threadTs: event.ts, user: event.user, noreply }, sessionMsg);
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -199,17 +203,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
           .catch(() => {}),
         client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "x" }).catch(() => {}),
-        noreply
-          ? client.chat.postEphemeral({
-              channel: event.channel,
-              user: event.user,
-              text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
-            })
-          : client.chat.postMessage({
-              channel: event.channel,
-              thread_ts: event.ts,
-              text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
-            }),
+        postReplyOrEphemeral(client, { channel: event.channel, threadTs: event.ts, user: event.user, noreply }, { text: "오류가 발생했습니다. 서버 로그를 확인해주세요." }),
       ]);
     }
   };
