@@ -6,8 +6,15 @@ const KNOWN_VARS = ["prompt", "thread", "repo", "global"] as const;
 
 const DEFAULT_TEMPLATE_PATH = resolve(import.meta.dir, "../../templates/default.txt");
 
+export function expandPath(filePath: string): string {
+  if (filePath.startsWith("~/")) {
+    return (process.env.HOME || "") + filePath.slice(1);
+  }
+  return filePath;
+}
+
 export function loadTemplate(filePath: string): string {
-  const expanded = filePath.startsWith("~") ? filePath.replace("~", process.env.HOME || "") : filePath;
+  const expanded = expandPath(filePath);
 
   try {
     return readFileSync(expanded, "utf-8");
@@ -50,11 +57,11 @@ export function buildPrompt(opts: {
 
   const baseVars = { prompt, thread: threadContext, repo: repoName, global: "" };
 
-  const renderedGlobal = renderTemplate(globalTemplate, baseVars);
+  const renderedGlobal = renderTemplate(globalTemplate, baseVars).trimEnd();
 
   if (repoConfig.promptTemplate) {
     const repoTemplate = loadTemplate(repoConfig.promptTemplate);
-    return renderTemplate(repoTemplate, { ...baseVars, global: renderedGlobal });
+    return renderTemplate(repoTemplate, { ...baseVars, global: renderedGlobal }).trimEnd();
   }
 
   return renderedGlobal;

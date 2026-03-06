@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { expandPath } from "./prompt/template";
 
 export interface CCSlackConfig {
   allowedUsers: string[];
@@ -25,6 +26,24 @@ const DEFAULTS: Partial<CCSlackConfig> = {
   enableSessionContinuity: true,
 };
 
+function validateTemplatePath(filePath: string, label: string): void {
+  const expanded = expandPath(filePath);
+  if (!existsSync(expanded)) {
+    throw new Error(`${label} template file not found: ${expanded}`);
+  }
+}
+
+function validateRepoEntry(name: string, entry: string | { path: string; promptTemplate?: string }): void {
+  if (typeof entry === "object") {
+    if (!entry.path) {
+      throw new Error(`repos.${name}: "path" is required`);
+    }
+    if (entry.promptTemplate) {
+      validateTemplatePath(entry.promptTemplate, `repos.${name}.promptTemplate`);
+    }
+  }
+}
+
 export function loadConfig(configPath: string): CCSlackConfig {
   if (!existsSync(configPath)) {
     throw new Error(`Config file not found: ${configPath}`);
@@ -39,6 +58,14 @@ export function loadConfig(configPath: string): CCSlackConfig {
 
   if (!config.allowedUsers || config.allowedUsers.length === 0) {
     throw new Error("allowedUsers must contain at least one Slack User ID");
+  }
+
+  if (config.promptTemplate) {
+    validateTemplatePath(config.promptTemplate, "promptTemplate");
+  }
+
+  for (const [name, entry] of Object.entries(config.repos)) {
+    validateRepoEntry(name, entry);
   }
 
   return config;

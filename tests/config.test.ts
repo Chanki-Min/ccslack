@@ -155,25 +155,40 @@ describe("loadConfig", () => {
     expect(result.enableSessionContinuity).toBe(false);
   });
 
-  it("loads promptTemplate from config", () => {
+  it("loads promptTemplate from config when file exists", () => {
+    const tplPath = join(TEST_CONFIG_DIR, "global.txt");
+    writeFileSync(tplPath, "{{prompt}}");
     const config = {
       allowedUsers: ["U123"],
       repos: {},
-      promptTemplate: "~/.ccslack/prompts/global.txt",
+      promptTemplate: tplPath,
     };
     writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
 
     const result = loadConfig(TEST_CONFIG_PATH);
-    expect(result.promptTemplate).toBe("~/.ccslack/prompts/global.txt");
+    expect(result.promptTemplate).toBe(tplPath);
+  });
+
+  it("throws if promptTemplate file does not exist", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      promptTemplate: "/nonexistent/global.txt",
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    expect(() => loadConfig(TEST_CONFIG_PATH)).toThrow("template file not found");
   });
 
   it("supports object repo config with path and promptTemplate", () => {
+    const tplPath = join(TEST_CONFIG_DIR, "frontend.txt");
+    writeFileSync(tplPath, "{{prompt}}");
     const config = {
       allowedUsers: ["U123"],
       repos: {
         frontend: {
           path: "/home/user/projects/frontend",
-          promptTemplate: "~/.ccslack/prompts/frontend.txt",
+          promptTemplate: tplPath,
         },
       },
     };
@@ -182,8 +197,35 @@ describe("loadConfig", () => {
     const result = loadConfig(TEST_CONFIG_PATH);
     expect(result.repos.frontend).toEqual({
       path: "/home/user/projects/frontend",
-      promptTemplate: "~/.ccslack/prompts/frontend.txt",
+      promptTemplate: tplPath,
     });
+  });
+
+  it("throws if repo promptTemplate file does not exist", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {
+        frontend: {
+          path: "/home/user/projects/frontend",
+          promptTemplate: "/nonexistent/frontend.txt",
+        },
+      },
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    expect(() => loadConfig(TEST_CONFIG_PATH)).toThrow("template file not found");
+  });
+
+  it("throws if object repo config is missing path", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {
+        broken: { promptTemplate: "/some/template.txt" },
+      },
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    expect(() => loadConfig(TEST_CONFIG_PATH)).toThrow('"path" is required');
   });
 
   it("supports string repo config (backward compat)", () => {

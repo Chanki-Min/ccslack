@@ -62,7 +62,11 @@ async function fetchThreadContext(
     if (messages.length === 0) return "";
 
     console.log(`[thread] Loaded ${messages.length} prior message(s) from thread`);
-    return messages.join("\n") + "\n";
+    return (
+      "Below is the prior conversation in this Slack thread for context:\n\n" +
+      messages.join("\n") +
+      "\n\n---\n"
+    );
   } catch (err: any) {
     console.log(`[thread] Failed to fetch thread: ${err.message}`);
     return "";
