@@ -51,6 +51,15 @@ function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
   return { ...BASE_ENV, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) };
 }
 
+function makeAbortPromise(signal: AbortSignal | undefined, proc: { kill(): void }): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    signal?.addEventListener("abort", () => {
+      proc.kill();
+      reject(new Error("cancelled"));
+    }, { once: true });
+  });
+}
+
 function buildClaudeCmd(options: ClaudeOptions, extraFlags: string[] = []): string[] {
   const { claudePath, prompt, model, allowedTools, sessionId, isResuming } = options;
   const cmd = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", ...extraFlags];
@@ -110,19 +119,14 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
     env: buildClaudeEnv(maxOutputTokens),
   });
 
-  // Handle pre-aborted signal
+  const abortPromise = makeAbortPromise(options.signal, proc);
+
+  // Handle pre-aborted signal (checked after listener registration to avoid race)
   if (options.signal?.aborted) {
     proc.kill();
     yield { type: "error", error: "cancelled" };
     return;
   }
-
-  const abortPromise = new Promise<void>((resolve) => {
-    options.signal?.addEventListener("abort", () => {
-      proc.kill();
-      resolve();
-    }, { once: true });
-  });
 
   const timeoutPromise = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
@@ -179,7 +183,7 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
       const { done, value } = await Promise.race([
         readPromise,
         timeoutPromise.then(() => ({ done: true as const, value: undefined })),
-        abortPromise.then(() => ({ done: true as const, value: undefined })),
+        abortPromise.catch(() => ({ done: true as const, value: undefined })),
       ]);
 
       if (timedOut) {
@@ -243,17 +247,13 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
       env: buildClaudeEnv(maxOutputTokens),
     });
 
+    const abortPromise = makeAbortPromise(options.signal, proc);
+
+    // Handle pre-aborted signal (checked after listener registration to avoid race)
     if (options.signal?.aborted) {
       proc.kill();
       return { success: false, output: "", error: "cancelled" };
     }
-
-    const abortPromise = new Promise<never>((_, reject) => {
-      options.signal?.addEventListener("abort", () => {
-        proc.kill();
-        reject(new Error("cancelled"));
-      }, { once: true });
-    });
 
     let timer: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
