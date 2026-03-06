@@ -10,12 +10,15 @@
     "test": "bun test",
     "lint": "bunx biome check src/ tests/",
     "lint:fix": "bunx biome check --write src/ tests/",
-    "format": "bunx biome format --write src/ tests/"
+    "format": "bunx biome format --write src/ tests/",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.6",
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "husky": "^9.1.7"
   },
+  "trustedDependencies": ["husky"],
   "peerDependencies": {
     "typescript": "^5"
   },
