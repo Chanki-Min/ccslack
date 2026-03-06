@@ -150,6 +150,42 @@ echo '{"type":"result","result":"final answer"}'
   });
 });
 
+describe("AbortSignal support", () => {
+  it("runClaude returns cancelled error when signal is pre-aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await runClaude({
+      prompt: "hello",
+      cwd: "/tmp",
+      claudePath: "echo",
+      timeout: 5000,
+      signal: controller.signal,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("cancelled");
+  });
+
+  it("runClaudeStream yields cancelled error when signal is pre-aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const events: StreamEvent[] = [];
+    for await (const evt of runClaudeStream({
+      prompt: "hello",
+      cwd: "/tmp",
+      claudePath: "echo",
+      timeout: 5000,
+      signal: controller.signal,
+    })) {
+      events.push(evt);
+    }
+
+    expect(events.some((e) => e.type === "error" && e.error === "cancelled")).toBe(true);
+  });
+});
+
 describe("parseStreamJson", () => {
   it("extracts text from result message", () => {
     const input = [

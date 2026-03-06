@@ -8,6 +8,7 @@ export interface ClaudeOptions {
   model?: string;
   sessionId?: string;
   isResuming?: boolean;
+  signal?: AbortSignal;
 }
 
 export type StreamEvent =
@@ -109,6 +110,20 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
     env: buildClaudeEnv(maxOutputTokens),
   });
 
+  // Handle pre-aborted signal
+  if (options.signal?.aborted) {
+    proc.kill();
+    yield { type: "error", error: "cancelled" };
+    return;
+  }
+
+  const abortPromise = new Promise<void>((resolve) => {
+    options.signal?.addEventListener("abort", () => {
+      proc.kill();
+      resolve();
+    }, { once: true });
+  });
+
   const timeoutPromise = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
       timedOut = true;
@@ -164,10 +179,16 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
       const { done, value } = await Promise.race([
         readPromise,
         timeoutPromise.then(() => ({ done: true as const, value: undefined })),
+        abortPromise.then(() => ({ done: true as const, value: undefined })),
       ]);
 
       if (timedOut) {
         yield { type: "error", error: "timeout" };
+        return;
+      }
+
+      if (options.signal?.aborted) {
+        yield { type: "error", error: "cancelled" };
         return;
       }
 
@@ -222,6 +243,18 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
       env: buildClaudeEnv(maxOutputTokens),
     });
 
+    if (options.signal?.aborted) {
+      proc.kill();
+      return { success: false, output: "", error: "cancelled" };
+    }
+
+    const abortPromise = new Promise<never>((_, reject) => {
+      options.signal?.addEventListener("abort", () => {
+        proc.kill();
+        reject(new Error("cancelled"));
+      }, { once: true });
+    });
+
     let timer: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -259,7 +292,7 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     })();
 
     try {
-      return await Promise.race([resultPromise, timeoutPromise]);
+      return await Promise.race([resultPromise, timeoutPromise, abortPromise]);
     } finally {
       clearTimeout(timer!);
     }
