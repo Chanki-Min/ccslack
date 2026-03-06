@@ -108,4 +108,23 @@ describe("noreply flag", () => {
     expect(result.prompt).toBe("do something");
     expect(result.prompt).not.toContain("noreply");
   });
+
+  it("noreply in the middle of message", () => {
+    const result = parseMessage("run noreply tests");
+    expect(result.noreply).toBe(true);
+    expect(result.prompt).toBe("run tests");
+  });
+
+  it("noreply at the end of message", () => {
+    const result = parseMessage("run tests noreply");
+    expect(result.noreply).toBe(true);
+    expect(result.prompt).toBe("run tests");
+  });
+
+  it("noreply combined with model prefix", () => {
+    const result = parseMessage("noreply model:opus run tests");
+    expect(result.noreply).toBe(true);
+    expect(result.model).toBe("opus");
+    expect(result.prompt).toBe("run tests");
+  });
 });
