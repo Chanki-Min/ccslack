@@ -4,7 +4,25 @@ import type { CCSlackConfig } from "../config";
 import { buildPrompt } from "../prompt/template";
 import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
+import type { SlackMessage } from "./responder";
 import { formatMentionReply, formatSessionInfo } from "./responder";
+
+async function postReplyOrEphemeral(
+  client: any,
+  {
+    channel,
+    threadTs,
+    user,
+    noreply,
+  }: { channel: string; threadTs: string | undefined; user: string; noreply: boolean },
+  payload: SlackMessage | { text: string },
+): Promise<void> {
+  if (noreply) {
+    await client.chat.postEphemeral({ channel, user, ...(threadTs && { thread_ts: threadTs }), ...payload });
+  } else {
+    await client.chat.postMessage({ channel, thread_ts: threadTs, ...payload });
+  }
+}
 
 export interface ResolvedRepo {
   repoName: string;
@@ -103,10 +121,10 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       return;
     }
 
-    const { repo, model, session: parsedSession, prompt } = parseMessage(event.text || "");
+    const { repo, model, session: parsedSession, noreply, prompt } = parseMessage(event.text || "");
     const resolvedModel = model ?? config.defaultModel;
     console.log(
-      `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
+      `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | noreply: ${noreply} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
     );
 
     let resolved: ResolvedRepo;
@@ -168,15 +186,22 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" })
           .catch(() => {}),
       ]);
-      const messages = formatMentionReply(result);
-      for (const msg of messages) {
-        await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+      // noreply: skip thread reply, send session info only to requester via ephemeral
+      if (!noreply) {
+        const messages = formatMentionReply(result);
+        for (const msg of messages) {
+          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+        }
       }
 
-      // Post session info for local resume
+      // Post session info
       if (sessionId) {
         const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
+        await postReplyOrEphemeral(
+          client,
+          { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
+          sessionMsg,
+        );
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -188,11 +213,11 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
           .catch(() => {}),
         client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "x" }).catch(() => {}),
-        client.chat.postMessage({
-          channel: event.channel,
-          thread_ts: event.ts,
-          text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
-        }),
+        postReplyOrEphemeral(
+          client,
+          { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
+          { text: "오류가 발생했습니다. 서버 로그를 확인해주세요." },
+        ),
       ]);
     }
   };

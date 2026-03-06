@@ -2,6 +2,7 @@ export interface ParsedMessage {
   repo: string | null;
   model: string | null;
   session: string | null;
+  noreply: boolean;
   prompt: string;
 }
 
@@ -20,7 +21,10 @@ export function parseMessage(text: string): ParsedMessage {
   const { value: model, remaining: r2 } = extractPrefix(r1, "model");
   const { value: session, remaining: r3 } = extractPrefix(r2, "session");
 
-  const prompt = r3.replace(/\s+/g, " ").trim();
+  const r4 = r3.replace(/\bnoreply\b/, "").trim();
+  const noreply = r4 !== r3;
 
-  return { repo, model, session, prompt };
+  const prompt = r4.replace(/\s+/g, " ").trim();
+
+  return { repo, model, session, noreply, prompt };
 }
