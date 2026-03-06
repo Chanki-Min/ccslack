@@ -183,7 +183,6 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           await client.chat.postEphemeral({
             channel: event.channel,
             user: event.user,
-            thread_ts: event.ts,
             ...sessionMsg,
           });
         } else {
@@ -200,11 +199,17 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .remove({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
           .catch(() => {}),
         client.reactions.add({ channel: event.channel, timestamp: event.ts, name: "x" }).catch(() => {}),
-        client.chat.postMessage({
-          channel: event.channel,
-          thread_ts: event.ts,
-          text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
-        }),
+        noreply
+          ? client.chat.postEphemeral({
+              channel: event.channel,
+              user: event.user,
+              text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
+            })
+          : client.chat.postMessage({
+              channel: event.channel,
+              thread_ts: event.ts,
+              text: "오류가 발생했습니다. 서버 로그를 확인해주세요.",
+            }),
       ]);
     }
   };
