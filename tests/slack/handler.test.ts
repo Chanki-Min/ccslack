@@ -1,6 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock } from "bun:test";
 import type { CCSlackConfig } from "../../src/config";
-import { resolveRepoPath, resolveSessionId, SESSION_ID_RE } from "../../src/slack/handler";
+import { createReactionCancelHandler, resolveRepoPath, resolveSessionId, SESSION_ID_RE } from "../../src/slack/handler";
 import { formatSessionInfo } from "../../src/slack/responder";
 
 const mockConfig: CCSlackConfig = {
@@ -130,5 +130,95 @@ describe("SESSION_ID_RE", () => {
   it("does not match non-UUID strings", () => {
     expect("Session: not-a-uuid".match(SESSION_ID_RE)).toBeNull();
     expect("random text".match(SESSION_ID_RE)).toBeNull();
+  });
+});
+
+describe("createReactionCancelHandler", () => {
+  const config = mockConfig;
+
+  it("cancels task and sends ephemeral message when x reaction by allowed user", async () => {
+    const cancelMap = { cancel: mock(() => true) };
+    const mockClient = {
+      chat: { postEphemeral: mock(async () => {}) },
+      reactions: { remove: mock(async () => {}) },
+    };
+
+    const handler = createReactionCancelHandler(config, cancelMap as any);
+    await handler({
+      event: {
+        reaction: "x",
+        user: config.allowedUsers[0],
+        item: { type: "message", channel: "C123", ts: "1234567890.000001" },
+      },
+      client: mockClient,
+    });
+
+    expect(cancelMap.cancel).toHaveBeenCalledWith("1234567890.000001");
+    expect(mockClient.chat.postEphemeral).toHaveBeenCalled();
+    expect(mockClient.reactions.remove).toHaveBeenCalledWith({
+      channel: "C123",
+      timestamp: "1234567890.000001",
+      name: "hourglass_flowing_sand",
+    });
+  });
+
+  it("ignores reaction from non-allowed user", async () => {
+    const cancelMap = { cancel: mock(() => true) };
+    const mockClient = {
+      chat: { postEphemeral: mock(async () => {}) },
+      reactions: { remove: mock(async () => {}) },
+    };
+
+    const handler = createReactionCancelHandler(config, cancelMap as any);
+    await handler({
+      event: {
+        reaction: "x",
+        user: "U_UNKNOWN",
+        item: { type: "message", channel: "C123", ts: "1234567890.000001" },
+      },
+      client: mockClient,
+    });
+
+    expect(cancelMap.cancel).not.toHaveBeenCalled();
+  });
+
+  it("ignores non-x reactions", async () => {
+    const cancelMap = { cancel: mock(() => true) };
+    const mockClient = {
+      chat: { postEphemeral: mock(async () => {}) },
+      reactions: { remove: mock(async () => {}) },
+    };
+
+    const handler = createReactionCancelHandler(config, cancelMap as any);
+    await handler({
+      event: {
+        reaction: "thumbsup",
+        user: config.allowedUsers[0],
+        item: { type: "message", channel: "C123", ts: "1234567890.000001" },
+      },
+      client: mockClient,
+    });
+
+    expect(cancelMap.cancel).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when no active task for that ts", async () => {
+    const cancelMap = { cancel: mock(() => false) };
+    const mockClient = {
+      chat: { postEphemeral: mock(async () => {}) },
+      reactions: { remove: mock(async () => {}) },
+    };
+
+    const handler = createReactionCancelHandler(config, cancelMap as any);
+    await handler({
+      event: {
+        reaction: "x",
+        user: config.allowedUsers[0],
+        item: { type: "message", channel: "C123", ts: "no-such-ts" },
+      },
+      client: mockClient,
+    });
+
+    expect(mockClient.chat.postEphemeral).not.toHaveBeenCalled();
   });
 });

@@ -229,6 +229,33 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
   };
 }
 
+export function createReactionCancelHandler(
+  config: CCSlackConfig,
+  cancelMap: Pick<CancelMap, "cancel">,
+) {
+  return async ({ event, client }: { event: any; client: any }) => {
+    if (event.reaction !== "x") return;
+    if (!config.allowedUsers.includes(event.user)) return;
+    if (event.item?.type !== "message") return;
+
+    const { channel, ts } = event.item;
+    const cancelled = cancelMap.cancel(ts);
+    if (!cancelled) return;
+
+    await Promise.all([
+      client.reactions
+        .remove({ channel, timestamp: ts, name: "hourglass_flowing_sand" })
+        .catch(() => {}),
+      client.chat.postEphemeral({
+        channel,
+        user: event.user,
+        thread_ts: ts,
+        text: "작업이 취소되었습니다.",
+      }),
+    ]);
+  };
+}
+
 export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelMap: CancelMap): Assistant {
   return new Assistant({
     threadStarted: async ({ say, setSuggestedPrompts, setTitle, saveThreadContext }) => {
