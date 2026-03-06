@@ -146,6 +146,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           maxOutputTokens: config.maxOutputTokens,
           model: resolvedModel,
           sessionId,
+          isResuming,
         }),
       );
 
@@ -268,6 +269,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
               maxOutputTokens: config.maxOutputTokens,
               model: resolvedModel,
               sessionId,
+              isResuming,
             })) {
               if (evt.type === "text_delta") {
                 if (hasThinking) {
