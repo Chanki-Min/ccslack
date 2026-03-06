@@ -4,6 +4,7 @@ import type { CCSlackConfig } from "../config";
 import { buildPrompt } from "../prompt/template";
 import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
+import type { SlackMessage } from "./responder";
 import { formatMentionReply, formatSessionInfo } from "./responder";
 
 async function postReplyOrEphemeral(
@@ -14,7 +15,7 @@ async function postReplyOrEphemeral(
     user,
     noreply,
   }: { channel: string; threadTs: string | undefined; user: string; noreply: boolean },
-  payload: Record<string, unknown>,
+  payload: SlackMessage | { text: string },
 ): Promise<void> {
   if (noreply) {
     await client.chat.postEphemeral({ channel, user, ...(threadTs && { thread_ts: threadTs }), ...payload });

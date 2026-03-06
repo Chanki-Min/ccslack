@@ -11,6 +11,7 @@
     "lint": "bunx biome check src/ tests/",
     "lint:fix": "bunx biome check --write src/ tests/",
     "format": "bunx biome format --write src/ tests/",
+    "typecheck": "bunx tsc --noEmit",
     "prepare": "husky"
   },
   "devDependencies": {
