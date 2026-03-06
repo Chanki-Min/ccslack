@@ -41,4 +41,15 @@ describe("resolveRepoPath", () => {
   it("throws for unknown repo alias", () => {
     expect(() => resolveRepoPath("nonexistent", mockConfig)).toThrow();
   });
+
+  it("resolves repo path from object config", () => {
+    const config: CCSlackConfig = {
+      ...mockConfig,
+      repos: {
+        frontend: { path: "/Users/test/projects/frontend" },
+      },
+    };
+    const path = resolveRepoPath("frontend", config);
+    expect(path).toBe("/Users/test/projects/frontend");
+  });
 });

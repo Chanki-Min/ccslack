@@ -1,6 +1,7 @@
 import { Assistant } from "@slack/bolt";
 import { runClaude, runClaudeStream } from "../claude/runner";
 import type { CCSlackConfig } from "../config";
+import { buildPrompt } from "../prompt/template";
 import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
 import { formatMentionReply, formatSessionInfo } from "./responder";
@@ -14,12 +15,12 @@ export function resolveRepoPath(repo: string | null, config: CCSlackConfig): str
   }
 
   // Only allow configured repo aliases — no arbitrary paths
-  const resolved = config.repos[repoName];
-  if (!resolved) {
+  const entry = config.repos[repoName];
+  if (!entry) {
     throw new Error(`Unknown repo: "${repoName}". Available: ${available}`);
   }
 
-  return resolved;
+  return typeof entry === "string" ? entry : entry.path;
 }
 
 function maybeSessionId(config: CCSlackConfig): string | undefined {
@@ -55,11 +56,7 @@ async function fetchThreadContext(
     if (messages.length === 0) return "";
 
     console.log(`[thread] Loaded ${messages.length} prior message(s) from thread`);
-    return (
-      "Below is the prior conversation in this Slack thread for context:\n\n" +
-      messages.join("\n") +
-      "\n\n---\nNow respond to the latest request:\n"
-    );
+    return messages.join("\n") + "\n";
   } catch (err: any) {
     console.log(`[thread] Failed to fetch thread: ${err.message}`);
     return "";
@@ -102,7 +99,12 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
         .catch(() => {}),
       fetchThreadContext(client, event.channel, event.thread_ts, event.ts),
     ]);
-    const fullPrompt = threadContext + prompt;
+    const fullPrompt = buildPrompt({
+      config,
+      repoName: repo ?? config.defaultRepo ?? "",
+      prompt,
+      threadContext,
+    });
 
     const startTime = Date.now();
     console.log(
@@ -214,7 +216,12 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
         setStatus("Thinking..."),
         fetchThreadContext(client, ev.channel, ev.thread_ts, ev.ts),
       ]);
-      const fullPrompt = threadContext + prompt;
+      const fullPrompt = buildPrompt({
+        config,
+        repoName: repo ?? config.defaultRepo ?? "",
+        prompt,
+        threadContext,
+      });
 
       // Queue + Stream
       const startTime = Date.now();
