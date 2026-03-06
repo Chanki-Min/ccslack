@@ -26,10 +26,7 @@ export function loadTemplate(filePath: string): string {
   }
 }
 
-export function renderTemplate(
-  template: string,
-  vars: Record<(typeof KNOWN_VARS)[number], string>,
-): string {
+export function renderTemplate(template: string, vars: Record<(typeof KNOWN_VARS)[number], string>): string {
   let result = template;
   for (const key of KNOWN_VARS) {
     result = result.replaceAll(`{{${key}}}`, vars[key]);

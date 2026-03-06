@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { renderTemplate, loadTemplate, buildPrompt } from "../../src/prompt/template";
 import type { CCSlackConfig } from "../../src/config";
+import { buildPrompt, loadTemplate, renderTemplate } from "../../src/prompt/template";
 
 const TEST_DIR = join(import.meta.dir, ".test-templates");
 
