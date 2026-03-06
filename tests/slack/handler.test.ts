@@ -93,7 +93,7 @@ describe("SESSION_ID_RE", () => {
 
   it("matches formatSessionInfo block field (:link: `<uuid>`)", () => {
     const msg = formatSessionInfo(testUuid, "/tmp/repo");
-    const blockText = msg.blocks[0].text;
+    const blockText = msg.blocks[0]!.text;
     const match = blockText.match(SESSION_ID_RE);
     expect(match).not.toBeNull();
     expect(match![1]).toBe(testUuid);
@@ -108,7 +108,7 @@ describe("SESSION_ID_RE", () => {
     let lastId: string | null = null;
     for (const text of messages) {
       const match = text.match(SESSION_ID_RE);
-      if (match) lastId = match[1];
+      if (match) lastId = match[1] ?? null;
     }
     expect(lastId).toBe(testUuid);
   });
