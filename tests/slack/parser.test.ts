@@ -75,9 +75,7 @@ describe("parseMessage", () => {
   });
 
   it("handles repo, model, and session together", () => {
-    const result = parseMessage(
-      "repo:my-project model:opus session:abc-123-def add tests",
-    );
+    const result = parseMessage("repo:my-project model:opus session:abc-123-def add tests");
     expect(result.repo).toBe("my-project");
     expect(result.model).toBe("opus");
     expect(result.session).toBe("abc-123-def");
