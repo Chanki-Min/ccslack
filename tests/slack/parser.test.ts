@@ -82,3 +82,30 @@ describe("parseMessage", () => {
     expect(result.prompt).toBe("add tests");
   });
 });
+
+describe("noreply flag", () => {
+  it("parses noreply keyword", () => {
+    const result = parseMessage("noreply repo:my-project run tests");
+    expect(result.noreply).toBe(true);
+    expect(result.repo).toBe("my-project");
+    expect(result.prompt).toBe("run tests");
+  });
+
+  it("noreply is false when not present", () => {
+    const result = parseMessage("repo:my-project run tests");
+    expect(result.noreply).toBe(false);
+  });
+
+  it("noreply works after bot mention", () => {
+    const result = parseMessage("<@U12345> noreply fix the bug");
+    expect(result.noreply).toBe(true);
+    expect(result.prompt).toBe("fix the bug");
+  });
+
+  it("noreply does not appear in prompt", () => {
+    const result = parseMessage("noreply do something");
+    expect(result.noreply).toBe(true);
+    expect(result.prompt).toBe("do something");
+    expect(result.prompt).not.toContain("noreply");
+  });
+});
