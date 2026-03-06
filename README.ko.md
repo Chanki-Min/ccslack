@@ -11,6 +11,7 @@ Slack과 로컬 Claude Code CLI를 연결하는 브리지입니다. AI Assistant
 - 채널에서 `@봇이름` 멘션으로 사용 가능 (스레드 답변 + 리액션 상태)
 - `repo:이름` 프리픽스로 작업할 레포지토리 지정
 - 스레드 대화 컨텍스트 자동 포함 (멀티턴)
+- **프롬프트 템플릿** — 글로벌 + 레포별 오버라이드 가능한 커스텀 프롬프트
 - **세션 연속성** — Slack에서 시작한 세션을 로컬에서 `claude --resume <id>`로 이어받기
 - `--allowedTools`로 MCP 도구 권한 자동 승인
 - 인메모리 작업 큐로 동시성 제어
@@ -48,9 +49,13 @@ Slack과 로컬 Claude Code CLI를 연결하는 브리지입니다. AI Assistant
   "taskTimeout": 300000,
   "defaultRepo": "my-project",
   "claudePath": "/usr/local/bin/claude",
+  "promptTemplate": "~/.ccslack/prompts/global.txt",
   "repos": {
     "my-project": "/home/you/projects/my-project",
-    "frontend": "/home/you/projects/frontend"
+    "frontend": {
+      "path": "/home/you/projects/frontend",
+      "promptTemplate": "~/.ccslack/prompts/frontend.txt"
+    }
   },
   "allowedTools": ["Bash", "Read", "Edit", "Glob", "Grep", "Write", "mcp__*"],
   "suggestedPrompts": [
@@ -97,6 +102,47 @@ bun dev
 - 프리픽스 이후의 모든 텍스트가 Claude에 전달되는 프롬프트입니다.
 - 같은 스레드에서 대화를 이어가면 이전 대화가 컨텍스트로 포함됩니다.
 
+## 프롬프트 템플릿
+
+외부 텍스트 파일로 프롬프트를 커스텀할 수 있습니다. 글로벌 템플릿과 레포별 오버라이드를 지원합니다.
+
+### 변수
+
+| 변수 | 설명 |
+|---|---|
+| `{{prompt}}` | 사용자 입력 메시지 |
+| `{{thread}}` | 스레드 대화 컨텍스트 (없으면 빈 문자열) |
+| `{{repo}}` | 레포 이름 |
+| `{{global}}` | 글로벌 템플릿 렌더링 결과 (레포별 템플릿에서만 의미) |
+
+### 글로벌 템플릿 예시
+
+`~/.ccslack/prompts/global.txt`:
+
+```
+당신은 소프트웨어 엔지니어링 전문가입니다.
+
+{{thread}}
+
+사용자 요청:
+{{prompt}}
+```
+
+### 레포별 오버라이드 예시
+
+`~/.ccslack/prompts/frontend.txt`:
+
+```
+당신은 React/TypeScript 프론트엔드 전문가입니다.
+현재 작업 레포: {{repo}}
+
+{{global}}
+```
+
+- `{{global}}`을 쓰면 해당 위치에 글로벌 템플릿 렌더링 결과가 삽입됩니다.
+- `{{global}}`을 생략하면 글로벌 템플릿은 무시됩니다 (완전 오버라이드).
+- 템플릿을 설정하지 않으면 내장 기본 템플릿(`{{thread}}{{prompt}}`)이 사용됩니다.
+
 ## 동작 방식
 
 1. AI Assistant 사이드 패널(DM) 또는 채널에서 `@봇이름` 멘션으로 메시지를 보냅니다.
@@ -112,9 +158,10 @@ bun dev
 | 필드 | 타입 | 기본값 | 설명 |
 |---|---|---|---|
 | `allowedUsers` | `string[]` | (필수) | 사용이 허가된 Slack User ID 목록 |
-| `repos` | `Record<string, string>` | (필수) | 레포 단축 이름 → 로컬 경로 매핑 |
+| `repos` | `Record<string, string \| object>` | (필수) | 레포 단축 이름 → 경로 또는 `{ path, promptTemplate? }` |
 | `defaultRepo` | `string` | — | `repo:` 프리픽스 없을 때 사용할 기본 레포 |
 | `claudePath` | `string` | `"claude"` | Claude CLI 바이너리 경로 |
+| `promptTemplate` | `string` | 내장 기본값 | 글로벌 프롬프트 템플릿 파일 경로 |
 | `maxConcurrency` | `number` | `2` | 최대 동시 Claude 프로세스 수 |
 | `taskTimeout` | `number` | `300000` | 작업 타임아웃 (ms, 기본 5분) |
 | `allowedTools` | `string[]` | `[]` | 권한 프롬프트 없이 자동 승인할 도구 목록 |
