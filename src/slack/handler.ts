@@ -1,11 +1,17 @@
 import { Assistant } from "@slack/bolt";
 import { runClaude, runClaudeStream } from "../claude/runner";
 import type { CCSlackConfig } from "../config";
+import { buildPrompt } from "../prompt/template";
 import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
 import { formatMentionReply, formatSessionInfo } from "./responder";
 
-export function resolveRepoPath(repo: string | null, config: CCSlackConfig): string {
+export interface ResolvedRepo {
+  repoName: string;
+  repoPath: string;
+}
+
+export function resolveRepoPath(repo: string | null, config: CCSlackConfig): ResolvedRepo {
   const repoName = repo ?? config.defaultRepo ?? null;
   const available = Object.keys(config.repos).join(", ");
 
@@ -14,12 +20,13 @@ export function resolveRepoPath(repo: string | null, config: CCSlackConfig): str
   }
 
   // Only allow configured repo aliases — no arbitrary paths
-  const resolved = config.repos[repoName];
-  if (!resolved) {
+  const entry = config.repos[repoName];
+  if (!entry) {
     throw new Error(`Unknown repo: "${repoName}". Available: ${available}`);
   }
 
-  return resolved;
+  const repoPath = typeof entry === "string" ? entry : entry.path;
+  return { repoName, repoPath };
 }
 
 export interface SessionResolution {
@@ -80,10 +87,7 @@ async function fetchThreadContext(
     if (messages.length === 0) return { context: "", lastSessionId };
 
     console.log(`[thread] Loaded ${messages.length} prior message(s) from thread`);
-    const context =
-      "Below is the prior conversation in this Slack thread for context:\n\n" +
-      messages.join("\n") +
-      "\n\n---\nNow respond to the latest request:\n";
+    const context = `Below is the prior conversation in this Slack thread for context:\n\n${messages.join("\n")}\n\n---\n`;
     return { context, lastSessionId };
   } catch (err: any) {
     console.log(`[thread] Failed to fetch thread: ${err.message}`);
@@ -105,9 +109,9 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
     );
 
-    let repoPath: string;
+    let resolved: ResolvedRepo;
     try {
-      repoPath = resolveRepoPath(repo, config);
+      resolved = resolveRepoPath(repo, config);
     } catch (err: any) {
       console.log(`[mention] Repo resolution failed: ${err.message}`);
       await client.chat.postMessage({
@@ -128,18 +132,23 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
 
     const { sessionId, isResuming } = resolveSessionId(parsedSession, threadSessionId, config);
     if (isResuming) console.log(`[session] Resuming session ${sessionId}`);
-    const fullPrompt = (isResuming ? "" : threadContext) + prompt;
+    const fullPrompt = buildPrompt({
+      config,
+      repoName: resolved.repoName,
+      prompt,
+      threadContext: isResuming ? "" : threadContext,
+    });
 
     const startTime = Date.now();
     console.log(
-      `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
+      `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
     );
 
     try {
       const result = await queue.enqueue(() =>
         runClaude({
           prompt: fullPrompt,
-          cwd: repoPath,
+          cwd: resolved.repoPath,
           claudePath: config.claudePath,
           timeout: config.taskTimeout,
           allowedTools: config.allowedTools,
@@ -166,7 +175,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
 
       // Post session info for local resume
       if (sessionId) {
-        const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+        const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
         await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
       }
 
@@ -222,16 +231,16 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
         `[task] New request from ${ev.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
       );
 
-      let repoPath: string;
+      let resolved: ResolvedRepo;
       try {
-        repoPath = resolveRepoPath(repo, config);
+        resolved = resolveRepoPath(repo, config);
       } catch (err: any) {
         console.log(`[task] Repo resolution failed: ${err.message}`);
         await say({ text: "알 수 없는 레포입니다. 설정을 확인해주세요." });
         return;
       }
 
-      console.log(`[task] Resolved repo path: ${repoPath}`);
+      console.log(`[task] Resolved repo path: ${resolved.repoPath}`);
 
       // Title, status, and thread context are independent — run in parallel
       const [, , { context: threadContext, lastSessionId: threadSessionId }] = await Promise.all([
@@ -242,11 +251,16 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
       const { sessionId, isResuming } = resolveSessionId(parsedSession, threadSessionId, config);
       if (isResuming) console.log(`[session] Resuming session ${sessionId}`);
-      const fullPrompt = (isResuming ? "" : threadContext) + prompt;
+      const fullPrompt = buildPrompt({
+        config,
+        repoName: resolved.repoName,
+        prompt,
+        threadContext: isResuming ? "" : threadContext,
+      });
 
       // Queue + Stream
       const startTime = Date.now();
-      console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}`);
+      console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}`);
 
       try {
         await queue.enqueue(async () => {
@@ -262,7 +276,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
             for await (const evt of runClaudeStream({
               prompt: fullPrompt,
-              cwd: repoPath,
+              cwd: resolved.repoPath,
               claudePath: config.claudePath,
               timeout: config.taskTimeout,
               allowedTools: config.allowedTools,
@@ -304,7 +318,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
         // Post session info for local resume
         if (sessionId) {
-          const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
           await say(sessionMsg);
         }
       } catch (err: any) {

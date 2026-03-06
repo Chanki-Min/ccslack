@@ -11,6 +11,7 @@ Bridge your Slack workspace to a local [Claude Code](https://docs.anthropic.com/
 - **Channel mentions** — `@your-bot` in any channel for threaded replies with reaction status
 - **Multi-repo** — Switch repos with `repo:name` prefix
 - **Thread context** — Prior conversation automatically included for multi-turn dialogue
+- **Prompt templates** — Customizable prompts with global + per-repo override support
 - **Session continuity** — Resume any Slack-initiated session locally with `claude --resume <id>`
 - **Tool allowlist** — Auto-approve MCP tools via `--allowedTools`
 - **Concurrency control** — In-memory task queue with configurable limits
@@ -48,9 +49,13 @@ Create `~/.ccslack/config.json`:
   "taskTimeout": 300000,
   "defaultRepo": "my-project",
   "claudePath": "/usr/local/bin/claude",
+  "promptTemplate": "~/.ccslack/prompts/global.txt",
   "repos": {
     "my-project": "/home/you/projects/my-project",
-    "frontend": "/home/you/projects/frontend"
+    "frontend": {
+      "path": "/home/you/projects/frontend",
+      "promptTemplate": "~/.ccslack/prompts/frontend.txt"
+    }
   },
   "allowedTools": ["Bash", "Read", "Edit", "Glob", "Grep", "Write", "mcp__*"],
   "suggestedPrompts": [
@@ -97,6 +102,47 @@ There are two ways to interact with the bot:
 - Everything after the prefix is the prompt sent to Claude.
 - Continuing in the same thread includes prior conversation as context.
 
+## Prompt Templates
+
+Customize prompts via external text files. Supports global templates and per-repo overrides.
+
+### Variables
+
+| Variable | Description |
+|---|---|
+| `{{prompt}}` | User's input message |
+| `{{thread}}` | Thread conversation context (empty string if none) |
+| `{{repo}}` | Repo name |
+| `{{global}}` | Rendered global template (only meaningful in per-repo templates) |
+
+### Global Template Example
+
+`~/.ccslack/prompts/global.txt`:
+
+```
+You are a software engineering expert.
+
+{{thread}}
+
+User request:
+{{prompt}}
+```
+
+### Per-Repo Override Example
+
+`~/.ccslack/prompts/frontend.txt`:
+
+```
+You are a React/TypeScript frontend expert.
+Current repo: {{repo}}
+
+{{global}}
+```
+
+- Use `{{global}}` to insert the rendered global template at that position.
+- Omit `{{global}}` to fully override the global template.
+- When no template is configured, the built-in default (`{{thread}}{{prompt}}`) is used.
+
 ## How It Works
 
 1. A message arrives via the AI Assistant side panel (DM) or `@mention` in a channel.
@@ -112,9 +158,10 @@ There are two ways to interact with the bot:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `allowedUsers` | `string[]` | (required) | Slack User IDs allowed to use the bot |
-| `repos` | `Record<string, string>` | (required) | Repo alias → local path mapping |
+| `repos` | `Record<string, string \| object>` | (required) | Repo alias → path or `{ path, promptTemplate? }` |
 | `defaultRepo` | `string` | — | Default repo when `repo:` prefix is omitted |
 | `claudePath` | `string` | `"claude"` | Path to Claude CLI binary |
+| `promptTemplate` | `string` | built-in default | Global prompt template file path |
 | `maxConcurrency` | `number` | `2` | Max concurrent Claude processes |
 | `taskTimeout` | `number` | `300000` | Task timeout in ms (default 5 min) |
 | `allowedTools` | `string[]` | `[]` | Tools to auto-approve without permission prompts |
