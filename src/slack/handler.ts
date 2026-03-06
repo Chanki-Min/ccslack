@@ -39,7 +39,7 @@ export function resolveSessionId(
   return { sessionId: crypto.randomUUID(), isResuming: false };
 }
 
-const SESSION_ID_RE = /(?::link:\s*`|Session:\s*)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+export const SESSION_ID_RE = /(?::link:\s*`|Session:\s*)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
 
 async function fetchThreadContext(
   client: any,
