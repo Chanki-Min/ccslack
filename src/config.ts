@@ -6,7 +6,8 @@ export interface CCSlackConfig {
   taskTimeout: number;
   defaultRepo?: string;
   claudePath: string;
-  repos: Record<string, string>;
+  repos: Record<string, string | { path: string; promptTemplate?: string }>;
+  promptTemplate?: string;
   allowedTools?: string[];
   suggestedPrompts?: Array<{ title: string; message: string }>;
   maxOutputTokens?: number;

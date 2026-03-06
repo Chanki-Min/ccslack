@@ -154,4 +154,46 @@ describe("loadConfig", () => {
     const result = loadConfig(TEST_CONFIG_PATH);
     expect(result.enableSessionContinuity).toBe(false);
   });
+
+  it("loads promptTemplate from config", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {},
+      promptTemplate: "~/.ccslack/prompts/global.txt",
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.promptTemplate).toBe("~/.ccslack/prompts/global.txt");
+  });
+
+  it("supports object repo config with path and promptTemplate", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: {
+        frontend: {
+          path: "/home/user/projects/frontend",
+          promptTemplate: "~/.ccslack/prompts/frontend.txt",
+        },
+      },
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.repos.frontend).toEqual({
+      path: "/home/user/projects/frontend",
+      promptTemplate: "~/.ccslack/prompts/frontend.txt",
+    });
+  });
+
+  it("supports string repo config (backward compat)", () => {
+    const config = {
+      allowedUsers: ["U123"],
+      repos: { backend: "/home/user/projects/backend" },
+    };
+    writeFileSync(TEST_CONFIG_PATH, JSON.stringify(config));
+
+    const result = loadConfig(TEST_CONFIG_PATH);
+    expect(result.repos.backend).toBe("/home/user/projects/backend");
+  });
 });
