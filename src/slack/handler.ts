@@ -6,7 +6,12 @@ import type { TaskQueue } from "../queue/taskQueue";
 import { parseMessage } from "./parser";
 import { formatMentionReply, formatSessionInfo } from "./responder";
 
-export function resolveRepoPath(repo: string | null, config: CCSlackConfig): string {
+export interface ResolvedRepo {
+  repoName: string;
+  repoPath: string;
+}
+
+export function resolveRepoPath(repo: string | null, config: CCSlackConfig): ResolvedRepo {
   const repoName = repo ?? config.defaultRepo ?? null;
   const available = Object.keys(config.repos).join(", ");
 
@@ -20,7 +25,8 @@ export function resolveRepoPath(repo: string | null, config: CCSlackConfig): str
     throw new Error(`Unknown repo: "${repoName}". Available: ${available}`);
   }
 
-  return typeof entry === "string" ? entry : entry.path;
+  const repoPath = typeof entry === "string" ? entry : entry.path;
+  return { repoName, repoPath };
 }
 
 function maybeSessionId(config: CCSlackConfig): string | undefined {
@@ -77,9 +83,9 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
     );
 
-    let repoPath: string;
+    let resolved: ResolvedRepo;
     try {
-      repoPath = resolveRepoPath(repo, config);
+      resolved = resolveRepoPath(repo, config);
     } catch (err: any) {
       console.log(`[mention] Repo resolution failed: ${err.message}`);
       await client.chat.postMessage({
@@ -101,21 +107,21 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
     ]);
     const fullPrompt = buildPrompt({
       config,
-      repoName: repo ?? config.defaultRepo ?? "",
+      repoName: resolved.repoName,
       prompt,
       threadContext,
     });
 
     const startTime = Date.now();
     console.log(
-      `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
+      `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
     );
 
     try {
       const result = await queue.enqueue(() =>
         runClaude({
           prompt: fullPrompt,
-          cwd: repoPath,
+          cwd: resolved.repoPath,
           claudePath: config.claudePath,
           timeout: config.taskTimeout,
           allowedTools: config.allowedTools,
@@ -141,7 +147,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
 
       // Post session info for local resume
       if (sessionId) {
-        const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+        const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
         await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...sessionMsg });
       }
 
@@ -197,16 +203,16 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
         `[task] New request from ${ev.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
       );
 
-      let repoPath: string;
+      let resolved: ResolvedRepo;
       try {
-        repoPath = resolveRepoPath(repo, config);
+        resolved = resolveRepoPath(repo, config);
       } catch (err: any) {
         console.log(`[task] Repo resolution failed: ${err.message}`);
         await say({ text: "알 수 없는 레포입니다. 설정을 확인해주세요." });
         return;
       }
 
-      console.log(`[task] Resolved repo path: ${repoPath}`);
+      console.log(`[task] Resolved repo path: ${resolved.repoPath}`);
 
       const sessionId = maybeSessionId(config);
 
@@ -218,14 +224,14 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
       ]);
       const fullPrompt = buildPrompt({
         config,
-        repoName: repo ?? config.defaultRepo ?? "",
+        repoName: resolved.repoName,
         prompt,
         threadContext,
       });
 
       // Queue + Stream
       const startTime = Date.now();
-      console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${repoPath}`);
+      console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}`);
 
       try {
         await queue.enqueue(async () => {
@@ -241,7 +247,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
             for await (const evt of runClaudeStream({
               prompt: fullPrompt,
-              cwd: repoPath,
+              cwd: resolved.repoPath,
               claudePath: config.claudePath,
               timeout: config.taskTimeout,
               allowedTools: config.allowedTools,
@@ -282,7 +288,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
         // Post session info for local resume
         if (sessionId) {
-          const sessionMsg = formatSessionInfo(sessionId, repoPath, config.claudePath);
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
           await say(sessionMsg);
         }
       } catch (err: any) {

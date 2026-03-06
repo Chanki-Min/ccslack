@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { CCSlackConfig } from "../config";
 
@@ -9,11 +9,14 @@ const DEFAULT_TEMPLATE_PATH = resolve(import.meta.dir, "../../templates/default.
 export function loadTemplate(filePath: string): string {
   const expanded = filePath.startsWith("~") ? filePath.replace("~", process.env.HOME || "") : filePath;
 
-  if (!existsSync(expanded)) {
-    throw new Error(`Template file not found: ${expanded}`);
+  try {
+    return readFileSync(expanded, "utf-8");
+  } catch (err: any) {
+    if (err.code === "ENOENT") {
+      throw new Error(`Template file not found: ${expanded}`);
+    }
+    throw err;
   }
-
-  return readFileSync(expanded, "utf-8");
 }
 
 export function renderTemplate(

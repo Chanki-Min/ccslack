@@ -16,13 +16,15 @@ const mockConfig: CCSlackConfig = {
 
 describe("resolveRepoPath", () => {
   it("resolves a known repo alias", () => {
-    const path = resolveRepoPath("my-project", mockConfig);
-    expect(path).toBe("/Users/test/projects/my-project");
+    const { repoName, repoPath } = resolveRepoPath("my-project", mockConfig);
+    expect(repoName).toBe("my-project");
+    expect(repoPath).toBe("/Users/test/projects/my-project");
   });
 
   it("uses defaultRepo when repo is null", () => {
-    const path = resolveRepoPath(null, mockConfig);
-    expect(path).toBe("/Users/test/projects/default");
+    const { repoName, repoPath } = resolveRepoPath(null, mockConfig);
+    expect(repoName).toBe("default-project");
+    expect(repoPath).toBe("/Users/test/projects/default");
   });
 
   it("rejects absolute paths", () => {
@@ -49,7 +51,8 @@ describe("resolveRepoPath", () => {
         frontend: { path: "/Users/test/projects/frontend" },
       },
     };
-    const path = resolveRepoPath("frontend", config);
-    expect(path).toBe("/Users/test/projects/frontend");
+    const { repoName, repoPath } = resolveRepoPath("frontend", config);
+    expect(repoName).toBe("frontend");
+    expect(repoPath).toBe("/Users/test/projects/frontend");
   });
 });
