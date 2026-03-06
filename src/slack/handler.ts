@@ -29,18 +29,33 @@ export function resolveRepoPath(repo: string | null, config: CCSlackConfig): Res
   return { repoName, repoPath };
 }
 
-function maybeSessionId(config: CCSlackConfig): string | undefined {
-  return config.enableSessionContinuity !== false ? crypto.randomUUID() : undefined;
+export interface SessionResolution {
+  sessionId: string | undefined;
+  isResuming: boolean;
 }
+
+export function resolveSessionId(
+  parsedSession: string | null,
+  threadSessionId: string | null,
+  config: CCSlackConfig,
+): SessionResolution {
+  if (config.enableSessionContinuity === false) return { sessionId: undefined, isResuming: false };
+  if (parsedSession === "new") return { sessionId: crypto.randomUUID(), isResuming: false };
+  if (parsedSession) return { sessionId: parsedSession, isResuming: false };
+  if (threadSessionId) return { sessionId: threadSessionId, isResuming: true };
+  return { sessionId: crypto.randomUUID(), isResuming: false };
+}
+
+export const SESSION_ID_RE = /(?::link:\s*`|Session:\s*)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
 
 async function fetchThreadContext(
   client: any,
   channel: string,
   threadTs: string | undefined,
   currentTs: string,
-): Promise<string> {
+): Promise<{ context: string; lastSessionId: string | null }> {
   // Not in a thread — no prior context
-  if (!threadTs) return "";
+  if (!threadTs) return { context: "", lastSessionId: null };
 
   try {
     const result = await client.conversations.replies({
@@ -49,23 +64,34 @@ async function fetchThreadContext(
       limit: 50,
     });
 
+    let lastSessionId: string | null = null;
+
     const messages = (result.messages || [])
       .filter((m: any) => m.ts !== currentTs) // exclude the current message
       .map((m: any) => {
         const isBot = !!m.bot_id;
         const role = isBot ? "assistant" : "user";
-        // Strip bot mentions from user messages
         const text = (m.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+
+        // Extract session ID from bot messages
+        if (isBot) {
+          const sessionMatch = text.match(SESSION_ID_RE);
+          if (sessionMatch) {
+            lastSessionId = sessionMatch[1];
+          }
+        }
+
         return `[${role}]: ${text}`;
       });
 
-    if (messages.length === 0) return "";
+    if (messages.length === 0) return { context: "", lastSessionId };
 
     console.log(`[thread] Loaded ${messages.length} prior message(s) from thread`);
-    return `Below is the prior conversation in this Slack thread for context:\n\n${messages.join("\n")}\n\n---\n`;
+    const context = `Below is the prior conversation in this Slack thread for context:\n\n${messages.join("\n")}\n\n---\n`;
+    return { context, lastSessionId };
   } catch (err: any) {
     console.log(`[thread] Failed to fetch thread: ${err.message}`);
-    return "";
+    return { context: "", lastSessionId: null };
   }
 }
 
@@ -77,7 +103,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       return;
     }
 
-    const { repo, model, prompt } = parseMessage(event.text || "");
+    const { repo, model, session: parsedSession, prompt } = parseMessage(event.text || "");
     const resolvedModel = model ?? config.defaultModel;
     console.log(
       `[mention] New request from ${event.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
@@ -96,20 +122,21 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       return;
     }
 
-    const sessionId = maybeSessionId(config);
-
     // Hourglass reaction + thread context in parallel
-    const [, threadContext] = await Promise.all([
+    const [, { context: threadContext, lastSessionId: threadSessionId }] = await Promise.all([
       client.reactions
         .add({ channel: event.channel, timestamp: event.ts, name: "hourglass_flowing_sand" })
         .catch(() => {}),
       fetchThreadContext(client, event.channel, event.thread_ts, event.ts),
     ]);
+
+    const { sessionId, isResuming } = resolveSessionId(parsedSession, threadSessionId, config);
+    if (isResuming) console.log(`[session] Resuming session ${sessionId}`);
     const fullPrompt = buildPrompt({
       config,
       repoName: resolved.repoName,
       prompt,
-      threadContext,
+      threadContext: isResuming ? "" : threadContext,
     });
 
     const startTime = Date.now();
@@ -128,6 +155,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           maxOutputTokens: config.maxOutputTokens,
           model: resolvedModel,
           sessionId,
+          isResuming,
         }),
       );
 
@@ -197,7 +225,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
         return;
       }
 
-      const { repo, model, prompt } = parseMessage(ev.text || "");
+      const { repo, model, session: parsedSession, prompt } = parseMessage(ev.text || "");
       const resolvedModel = model ?? config.defaultModel;
       console.log(
         `[task] New request from ${ev.user} | repo: ${repo ?? "(default)"} | model: ${resolvedModel ?? "(default)"} | prompt: "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`,
@@ -214,19 +242,20 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
 
       console.log(`[task] Resolved repo path: ${resolved.repoPath}`);
 
-      const sessionId = maybeSessionId(config);
-
       // Title, status, and thread context are independent — run in parallel
-      const [, , threadContext] = await Promise.all([
+      const [, , { context: threadContext, lastSessionId: threadSessionId }] = await Promise.all([
         setTitle(prompt.slice(0, 50)),
         setStatus("Thinking..."),
         fetchThreadContext(client, ev.channel, ev.thread_ts, ev.ts),
       ]);
+
+      const { sessionId, isResuming } = resolveSessionId(parsedSession, threadSessionId, config);
+      if (isResuming) console.log(`[session] Resuming session ${sessionId}`);
       const fullPrompt = buildPrompt({
         config,
         repoName: resolved.repoName,
         prompt,
-        threadContext,
+        threadContext: isResuming ? "" : threadContext,
       });
 
       // Queue + Stream
@@ -254,6 +283,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
               maxOutputTokens: config.maxOutputTokens,
               model: resolvedModel,
               sessionId,
+              isResuming,
             })) {
               if (evt.type === "text_delta") {
                 if (hasThinking) {

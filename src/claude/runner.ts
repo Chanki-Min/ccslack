@@ -7,6 +7,7 @@ export interface ClaudeOptions {
   maxOutputTokens?: number;
   model?: string;
   sessionId?: string;
+  isResuming?: boolean;
 }
 
 export type StreamEvent =
@@ -50,11 +51,17 @@ function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
 }
 
 function buildClaudeCmd(options: ClaudeOptions, extraFlags: string[] = []): string[] {
-  const { claudePath, prompt, model, allowedTools, sessionId } = options;
+  const { claudePath, prompt, model, allowedTools, sessionId, isResuming } = options;
   const cmd = [claudePath, "-p", prompt, "--output-format", "stream-json", "--verbose", ...extraFlags];
   if (model) cmd.push("--model", model);
   if (allowedTools?.length) cmd.push("--allowedTools", ...allowedTools);
-  if (sessionId) cmd.push("--session-id", sessionId);
+  if (sessionId) {
+    if (isResuming) {
+      cmd.push("--resume", sessionId);
+    } else {
+      cmd.push("--session-id", sessionId);
+    }
+  }
   return cmd;
 }
 

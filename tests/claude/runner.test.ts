@@ -17,7 +17,7 @@ describe("runClaude", () => {
     expect(result.output).toContain("hello");
   });
 
-  it("includes --session-id flag when sessionId is provided", async () => {
+  it("includes --session-id flag for new sessions", async () => {
     const result = await runClaude({
       prompt: "hello",
       cwd: "/tmp",
@@ -28,9 +28,25 @@ describe("runClaude", () => {
     expect(result.success).toBe(true);
     expect(result.output).toContain("--session-id");
     expect(result.output).toContain("test-uuid-1234");
+    expect(result.output).not.toContain("--resume");
   });
 
-  it("omits --session-id when sessionId is undefined", async () => {
+  it("includes --resume flag when isResuming is true", async () => {
+    const result = await runClaude({
+      prompt: "hello",
+      cwd: "/tmp",
+      claudePath: "echo",
+      timeout: 5000,
+      sessionId: "test-uuid-1234",
+      isResuming: true,
+    });
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("--resume");
+    expect(result.output).toContain("test-uuid-1234");
+    expect(result.output).not.toContain("--session-id");
+  });
+
+  it("omits --session-id and --resume when sessionId is undefined", async () => {
     const result = await runClaude({
       prompt: "hello",
       cwd: "/tmp",
@@ -38,6 +54,7 @@ describe("runClaude", () => {
       timeout: 5000,
     });
     expect(result.output).not.toContain("--session-id");
+    expect(result.output).not.toContain("--resume");
   });
 
   it("returns failure for nonexistent command", async () => {
