@@ -67,6 +67,37 @@ export function resolveSessionId(
 
 export const SESSION_ID_RE = /(?::link:\s*`|Session:\s*)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
 
+export function extractSessionIdFromMessage(m: any): string | null {
+  // 1. Try text field first
+  const text = (m.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
+  const textMatch = text.match(SESSION_ID_RE);
+  if (textMatch) return textMatch[1] ?? null;
+
+  // 2. Try blocks (markdown blocks from Assistant API may not populate text)
+  if (Array.isArray(m.blocks)) {
+    for (const block of m.blocks) {
+      // Direct text/content fields (markdown blocks)
+      const blockText = block.text ?? block.content ?? "";
+      const blockMatch = blockText.match(SESSION_ID_RE);
+      if (blockMatch) return blockMatch[1] ?? null;
+
+      // rich_text blocks: Slack may convert markdown blocks to rich_text in conversations.replies
+      if (block.type === "rich_text" && Array.isArray(block.elements)) {
+        for (const section of block.elements) {
+          if (!Array.isArray(section.elements)) continue;
+          const sectionText = section.elements
+            .map((elem: any) => (elem.type === "emoji" ? `:${elem.name}:` : elem.text ?? ""))
+            .join("");
+          const sectionMatch = sectionText.match(SESSION_ID_RE);
+          if (sectionMatch) return sectionMatch[1] ?? null;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 async function fetchThreadContext(
   client: any,
   channel: string,
@@ -92,11 +123,11 @@ async function fetchThreadContext(
         const role = isBot ? "assistant" : "user";
         const text = (m.text || "").replace(/<@[A-Z0-9]+>/g, "").trim();
 
-        // Extract session ID from bot messages
+        // Extract session ID from bot messages (check text + blocks)
         if (isBot) {
-          const sessionMatch = text.match(SESSION_ID_RE);
-          if (sessionMatch) {
-            lastSessionId = sessionMatch[1];
+          const sessionId = extractSessionIdFromMessage(m);
+          if (sessionId) {
+            lastSessionId = sessionId;
           }
         }
 
@@ -105,7 +136,7 @@ async function fetchThreadContext(
 
     if (messages.length === 0) return { context: "", lastSessionId };
 
-    console.log(`[thread] Loaded ${messages.length} prior message(s) from thread`);
+    console.log(`[thread] Loaded ${messages.length} prior message(s) from thread, lastSessionId: ${lastSessionId}`);
     const context = `Below is the prior conversation in this Slack thread for context:\n\n${messages.join("\n")}\n\n---\n`;
     return { context, lastSessionId };
   } catch (err: any) {
@@ -194,9 +225,9 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
           .catch(() => {}),
       ]);
 
-      // Cancelled: send error + session info as ephemeral only
+      // Cancelled: send cancellation notice as ephemeral, session info as persistent
       if (isCancelled) {
-        const ephemeralParts: Promise<void>[] = [
+        const parts: Promise<void>[] = [
           client.chat.postEphemeral({
             channel: event.channel,
             user: event.user,
@@ -206,16 +237,15 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
         ];
         if (sessionId) {
           const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-          ephemeralParts.push(
-            client.chat.postEphemeral({
+          parts.push(
+            client.chat.postMessage({
               channel: event.channel,
-              user: event.user,
               thread_ts: event.ts,
               ...sessionMsg,
             }),
           );
         }
-        await Promise.all(ephemeralParts);
+        await Promise.all(parts);
       } else {
         // noreply: skip thread reply, send session info only to requester via ephemeral
         if (!noreply) {
@@ -225,14 +255,14 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
           }
         }
 
-        // Post session info
+        // Post session info (always persistent for session continuity)
         if (sessionId) {
           const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-          await postReplyOrEphemeral(
-            client,
-            { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
-            sessionMsg,
-          );
+          await client.chat.postMessage({
+            channel: event.channel,
+            thread_ts: event.thread_ts ?? event.ts,
+            ...sessionMsg,
+          });
         }
       }
 
@@ -404,19 +434,10 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
           }
         });
 
-        // Post session info: ephemeral if cancelled, public otherwise
+        // Post session info (always persistent for session continuity)
         if (sessionId) {
           const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-          if (cancelled) {
-            await client.chat.postEphemeral({
-              channel: ev.channel,
-              user: ev.user,
-              thread_ts: ev.thread_ts || ev.ts,
-              ...sessionMsg,
-            });
-          } else {
-            await say(sessionMsg);
-          }
+          await say(sessionMsg);
         }
       } catch (err: any) {
         console.log(`[claude] Unhandled error: ${err.message}`);
