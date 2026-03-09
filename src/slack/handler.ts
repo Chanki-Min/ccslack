@@ -373,7 +373,6 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
       const startTime = Date.now();
       console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}`);
 
-      let cancelled = false;
       try {
         await queue.enqueue(async () => {
           const streamer = client.chatStream({
@@ -417,9 +416,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
                 console.log(`[thinking] ${preview}`);
               } else if (evt.type === "error") {
                 console.log(`[claude] Error: ${evt.error}`);
-                if (evt.error === "cancelled") {
-                  cancelled = true;
-                } else {
+                if (evt.error !== "cancelled") {
                   await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
                 }
               } else if (evt.type === "result") {
