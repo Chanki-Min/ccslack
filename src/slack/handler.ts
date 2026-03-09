@@ -182,6 +182,8 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
       );
       cancelMap.unregister(event.ts);
 
+      const isCancelled = !result.success && result.error === "cancelled";
+
       // Swap reaction, then send reply chunks sequentially for ordering
       await Promise.all([
         client.reactions
@@ -191,22 +193,47 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
           .add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" })
           .catch(() => {}),
       ]);
-      // noreply: skip thread reply, send session info only to requester via ephemeral
-      if (!noreply) {
-        const messages = formatMentionReply(result);
-        for (const msg of messages) {
-          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
-        }
-      }
 
-      // Post session info
-      if (sessionId) {
-        const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        await postReplyOrEphemeral(
-          client,
-          { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
-          sessionMsg,
-        );
+      // Cancelled: send error + session info as ephemeral only
+      if (isCancelled) {
+        const ephemeralParts: Promise<void>[] = [
+          client.chat.postEphemeral({
+            channel: event.channel,
+            user: event.user,
+            thread_ts: event.ts,
+            text: "작업이 취소되었습니다.",
+          }),
+        ];
+        if (sessionId) {
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
+          ephemeralParts.push(
+            client.chat.postEphemeral({
+              channel: event.channel,
+              user: event.user,
+              thread_ts: event.ts,
+              ...sessionMsg,
+            }),
+          );
+        }
+        await Promise.all(ephemeralParts);
+      } else {
+        // noreply: skip thread reply, send session info only to requester via ephemeral
+        if (!noreply) {
+          const messages = formatMentionReply(result);
+          for (const msg of messages) {
+            await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+          }
+        }
+
+        // Post session info
+        if (sessionId) {
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
+          await postReplyOrEphemeral(
+            client,
+            { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
+            sessionMsg,
+          );
+        }
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -229,10 +256,7 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, ca
   };
 }
 
-export function createReactionCancelHandler(
-  config: CCSlackConfig,
-  cancelMap: Pick<CancelMap, "cancel">,
-) {
+export function createReactionCancelHandler(config: CCSlackConfig, cancelMap: Pick<CancelMap, "cancel">) {
   return async ({ event, client }: { event: any; client: any }) => {
     if (event.reaction !== "x") return;
     if (!config.allowedUsers.includes(event.user)) return;
@@ -243,9 +267,7 @@ export function createReactionCancelHandler(
     if (!cancelled) return;
 
     await Promise.all([
-      client.reactions
-        .remove({ channel, timestamp: ts, name: "hourglass_flowing_sand" })
-        .catch(() => {}),
+      client.reactions.remove({ channel, timestamp: ts, name: "hourglass_flowing_sand" }).catch(() => {}),
       client.chat.postEphemeral({
         channel,
         user: event.user,
@@ -321,6 +343,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
       const startTime = Date.now();
       console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}`);
 
+      let cancelled = false;
       try {
         await queue.enqueue(async () => {
           const streamer = client.chatStream({
@@ -364,7 +387,11 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
                 console.log(`[thinking] ${preview}`);
               } else if (evt.type === "error") {
                 console.log(`[claude] Error: ${evt.error}`);
-                await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
+                if (evt.error === "cancelled") {
+                  cancelled = true;
+                } else {
+                  await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
+                }
               } else if (evt.type === "result") {
                 console.log(`[claude] Result received: ${evt.text.length} chars`);
               }
@@ -377,10 +404,19 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelM
           }
         });
 
-        // Post session info for local resume
+        // Post session info: ephemeral if cancelled, public otherwise
         if (sessionId) {
           const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-          await say(sessionMsg);
+          if (cancelled) {
+            await client.chat.postEphemeral({
+              channel: ev.channel,
+              user: ev.user,
+              thread_ts: ev.thread_ts || ev.ts,
+              ...sessionMsg,
+            });
+          } else {
+            await say(sessionMsg);
+          }
         }
       } catch (err: any) {
         console.log(`[claude] Unhandled error: ${err.message}`);

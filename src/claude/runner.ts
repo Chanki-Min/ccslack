@@ -53,10 +53,14 @@ function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
 
 function makeAbortPromise(signal: AbortSignal | undefined, proc: { kill(): void }): Promise<never> {
   return new Promise<never>((_, reject) => {
-    signal?.addEventListener("abort", () => {
-      proc.kill();
-      reject(new Error("cancelled"));
-    }, { once: true });
+    signal?.addEventListener(
+      "abort",
+      () => {
+        proc.kill();
+        reject(new Error("cancelled"));
+      },
+      { once: true },
+    );
   });
 }
 
