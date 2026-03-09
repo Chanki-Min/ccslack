@@ -1,7 +1,8 @@
 import { App } from "@slack/bolt";
 import { DEFAULT_CONFIG_PATH, loadConfig } from "./config";
 import { TaskQueue } from "./queue/taskQueue";
-import { createAssistant, createMentionHandler } from "./slack/handler";
+import { CancelMap } from "./slack/cancelMap";
+import { createAssistant, createMentionHandler, createReactionCancelHandler } from "./slack/handler";
 
 const configPath = process.env.CCSLACK_CONFIG || DEFAULT_CONFIG_PATH;
 const config = loadConfig(configPath);
@@ -18,10 +19,13 @@ const app = new App({
 });
 
 const queue = new TaskQueue(config.maxConcurrency);
-const assistant = createAssistant(config, queue);
+const cancelMap = new CancelMap();
+
+const assistant = createAssistant(config, queue, cancelMap);
 app.assistant(assistant);
 
-app.event("app_mention", createMentionHandler(config, queue));
+app.event("app_mention", createMentionHandler(config, queue, cancelMap));
+app.event("reaction_added", createReactionCancelHandler(config, cancelMap));
 
 (async () => {
   await app.start();

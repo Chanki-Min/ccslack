@@ -3,6 +3,7 @@ import { runClaude, runClaudeStream } from "../claude/runner";
 import type { CCSlackConfig } from "../config";
 import { buildPrompt } from "../prompt/template";
 import type { TaskQueue } from "../queue/taskQueue";
+import type { CancelMap } from "./cancelMap";
 import { parseMessage } from "./parser";
 import type { SlackMessage } from "./responder";
 import { formatMentionReply, formatSessionInfo } from "./responder";
@@ -113,7 +114,7 @@ async function fetchThreadContext(
   }
 }
 
-export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
+export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue, cancelMap: CancelMap) {
   return async ({ event, client }: { event: any; client: any }) => {
     // Auth check
     if (!config.allowedUsers.includes(event.user)) {
@@ -157,6 +158,8 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
       threadContext: isResuming ? "" : threadContext,
     });
 
+    const signal = cancelMap.register(event.ts);
+
     const startTime = Date.now();
     console.log(
       `[claude] Starting batch: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}${sessionId ? ` [session: ${sessionId}]` : ""}`,
@@ -174,8 +177,12 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           model: resolvedModel,
           sessionId,
           isResuming,
+          signal,
         }),
       );
+      cancelMap.unregister(event.ts);
+
+      const isCancelled = !result.success && result.error === "cancelled";
 
       // Swap reaction, then send reply chunks sequentially for ordering
       await Promise.all([
@@ -186,27 +193,53 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
           .add({ channel: event.channel, timestamp: event.ts, name: result.success ? "white_check_mark" : "x" })
           .catch(() => {}),
       ]);
-      // noreply: skip thread reply, send session info only to requester via ephemeral
-      if (!noreply) {
-        const messages = formatMentionReply(result);
-        for (const msg of messages) {
-          await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
-        }
-      }
 
-      // Post session info
-      if (sessionId) {
-        const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-        await postReplyOrEphemeral(
-          client,
-          { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
-          sessionMsg,
-        );
+      // Cancelled: send error + session info as ephemeral only
+      if (isCancelled) {
+        const ephemeralParts: Promise<void>[] = [
+          client.chat.postEphemeral({
+            channel: event.channel,
+            user: event.user,
+            thread_ts: event.ts,
+            text: "작업이 취소되었습니다.",
+          }),
+        ];
+        if (sessionId) {
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
+          ephemeralParts.push(
+            client.chat.postEphemeral({
+              channel: event.channel,
+              user: event.user,
+              thread_ts: event.ts,
+              ...sessionMsg,
+            }),
+          );
+        }
+        await Promise.all(ephemeralParts);
+      } else {
+        // noreply: skip thread reply, send session info only to requester via ephemeral
+        if (!noreply) {
+          const messages = formatMentionReply(result);
+          for (const msg of messages) {
+            await client.chat.postMessage({ channel: event.channel, thread_ts: event.ts, ...msg });
+          }
+        }
+
+        // Post session info
+        if (sessionId) {
+          const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
+          await postReplyOrEphemeral(
+            client,
+            { channel: event.channel, threadTs: noreply ? event.thread_ts : event.ts, user: event.user, noreply },
+            sessionMsg,
+          );
+        }
       }
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[claude] Mention response finished in ${elapsed}s (${result.output.length} chars)`);
     } catch (err: any) {
+      cancelMap.unregister(event.ts);
       console.log(`[claude] Mention handler error: ${err.message}`);
       await Promise.all([
         client.reactions
@@ -223,7 +256,29 @@ export function createMentionHandler(config: CCSlackConfig, queue: TaskQueue) {
   };
 }
 
-export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assistant {
+export function createReactionCancelHandler(config: CCSlackConfig, cancelMap: Pick<CancelMap, "cancel">) {
+  return async ({ event, client }: { event: any; client: any }) => {
+    if (event.reaction !== "x") return;
+    if (!config.allowedUsers.includes(event.user)) return;
+    if (event.item?.type !== "message") return;
+
+    const { channel, ts } = event.item;
+    const cancelled = cancelMap.cancel(ts);
+    if (!cancelled) return;
+
+    await Promise.all([
+      client.reactions.remove({ channel, timestamp: ts, name: "hourglass_flowing_sand" }).catch(() => {}),
+      client.chat.postEphemeral({
+        channel,
+        user: event.user,
+        thread_ts: ts,
+        text: "작업이 취소되었습니다.",
+      }),
+    ]);
+  };
+}
+
+export function createAssistant(config: CCSlackConfig, queue: TaskQueue, cancelMap: CancelMap): Assistant {
   return new Assistant({
     threadStarted: async ({ say, setSuggestedPrompts, setTitle, saveThreadContext }) => {
       await setTitle("CCSlack Assistant");
@@ -284,9 +339,11 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
       });
 
       // Queue + Stream
+      const signal = cancelMap.register(ev.ts);
       const startTime = Date.now();
       console.log(`[claude] Starting stream: claude -p "${prompt.slice(0, 50)}..." in ${resolved.repoPath}`);
 
+      let cancelled = false;
       try {
         await queue.enqueue(async () => {
           const streamer = client.chatStream({
@@ -309,6 +366,7 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
               model: resolvedModel,
               sessionId,
               isResuming,
+              signal,
             })) {
               if (evt.type === "text_delta") {
                 if (hasThinking) {
@@ -329,22 +387,36 @@ export function createAssistant(config: CCSlackConfig, queue: TaskQueue): Assist
                 console.log(`[thinking] ${preview}`);
               } else if (evt.type === "error") {
                 console.log(`[claude] Error: ${evt.error}`);
-                await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
+                if (evt.error === "cancelled") {
+                  cancelled = true;
+                } else {
+                  await streamer.append({ markdown_text: `\n\nError: ${evt.error}` });
+                }
               } else if (evt.type === "result") {
                 console.log(`[claude] Result received: ${evt.text.length} chars`);
               }
             }
           } finally {
+            cancelMap.unregister(ev.ts);
             await streamer.stop();
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             console.log(`[claude] Stream finished in ${elapsed}s`);
           }
         });
 
-        // Post session info for local resume
+        // Post session info: ephemeral if cancelled, public otherwise
         if (sessionId) {
           const sessionMsg = formatSessionInfo(sessionId, resolved.repoPath, config.claudePath);
-          await say(sessionMsg);
+          if (cancelled) {
+            await client.chat.postEphemeral({
+              channel: ev.channel,
+              user: ev.user,
+              thread_ts: ev.thread_ts || ev.ts,
+              ...sessionMsg,
+            });
+          } else {
+            await say(sessionMsg);
+          }
         }
       } catch (err: any) {
         console.log(`[claude] Unhandled error: ${err.message}`);

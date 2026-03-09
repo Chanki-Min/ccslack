@@ -8,6 +8,7 @@ export interface ClaudeOptions {
   model?: string;
   sessionId?: string;
   isResuming?: boolean;
+  signal?: AbortSignal;
 }
 
 export type StreamEvent =
@@ -48,6 +49,19 @@ const BASE_ENV: Record<string, string> = (() => {
 function buildClaudeEnv(maxOutputTokens?: number): Record<string, string> {
   if (!maxOutputTokens) return BASE_ENV;
   return { ...BASE_ENV, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) };
+}
+
+function makeAbortPromise(signal: AbortSignal | undefined, proc: { kill(): void }): Promise<never> {
+  return new Promise<never>((_, reject) => {
+    signal?.addEventListener(
+      "abort",
+      () => {
+        proc.kill();
+        reject(new Error("cancelled"));
+      },
+      { once: true },
+    );
+  });
 }
 
 function buildClaudeCmd(options: ClaudeOptions, extraFlags: string[] = []): string[] {
@@ -109,6 +123,15 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
     env: buildClaudeEnv(maxOutputTokens),
   });
 
+  const abortPromise = makeAbortPromise(options.signal, proc);
+
+  // Handle pre-aborted signal (checked after listener registration to avoid race)
+  if (options.signal?.aborted) {
+    proc.kill();
+    yield { type: "error", error: "cancelled" };
+    return;
+  }
+
   const timeoutPromise = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
       timedOut = true;
@@ -164,10 +187,16 @@ export async function* runClaudeStream(options: ClaudeOptions): AsyncGenerator<S
       const { done, value } = await Promise.race([
         readPromise,
         timeoutPromise.then(() => ({ done: true as const, value: undefined })),
+        abortPromise.catch(() => ({ done: true as const, value: undefined })),
       ]);
 
       if (timedOut) {
         yield { type: "error", error: "timeout" };
+        return;
+      }
+
+      if (options.signal?.aborted) {
+        yield { type: "error", error: "cancelled" };
         return;
       }
 
@@ -222,6 +251,14 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
       env: buildClaudeEnv(maxOutputTokens),
     });
 
+    const abortPromise = makeAbortPromise(options.signal, proc);
+
+    // Handle pre-aborted signal (checked after listener registration to avoid race)
+    if (options.signal?.aborted) {
+      proc.kill();
+      return { success: false, output: "", error: "cancelled" };
+    }
+
     let timer: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
@@ -259,7 +296,7 @@ export async function runClaude(options: ClaudeOptions): Promise<ClaudeResult> {
     })();
 
     try {
-      return await Promise.race([resultPromise, timeoutPromise]);
+      return await Promise.race([resultPromise, timeoutPromise, abortPromise]);
     } finally {
       clearTimeout(timer!);
     }
