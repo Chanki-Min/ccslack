@@ -1,6 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 import type { CCSlackConfig } from "../../src/config";
-import { createReactionCancelHandler, resolveRepoPath, resolveSessionId, SESSION_ID_RE } from "../../src/slack/handler";
+import {
+  createReactionCancelHandler,
+  extractSessionIdFromMessage,
+  resolveRepoPath,
+  resolveSessionId,
+  SESSION_ID_RE,
+} from "../../src/slack/handler";
 import { formatSessionInfo } from "../../src/slack/responder";
 
 const mockConfig: CCSlackConfig = {
@@ -130,6 +136,108 @@ describe("SESSION_ID_RE", () => {
   it("does not match non-UUID strings", () => {
     expect("Session: not-a-uuid".match(SESSION_ID_RE)).toBeNull();
     expect("random text".match(SESSION_ID_RE)).toBeNull();
+  });
+});
+
+describe("extractSessionIdFromMessage", () => {
+  const testUuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+
+  it("extracts session ID from text field (Session: format)", () => {
+    const msg = { text: `Session: ${testUuid}`, bot_id: "B123" };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
+  });
+
+  it("extracts session ID from text field (:link: format)", () => {
+    const msg = { text: `:link: \`${testUuid}\``, bot_id: "B123" };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
+  });
+
+  it("extracts session ID from blocks when text is empty", () => {
+    const msg = {
+      text: "",
+      bot_id: "B123",
+      blocks: [
+        {
+          type: "markdown",
+          text: `---\n:link: \`${testUuid}\`\n\`\`\`\ncd /repo && claude --resume ${testUuid}\n\`\`\``,
+        },
+      ],
+    };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
+  });
+
+  it("extracts session ID from blocks when text has no session info", () => {
+    const msg = {
+      text: "Some other text without session info",
+      bot_id: "B123",
+      blocks: [
+        { type: "markdown", text: "Here is my response..." },
+        { type: "markdown", text: `---\n:link: \`${testUuid}\`` },
+      ],
+    };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
+  });
+
+  it("returns null when no session ID found anywhere", () => {
+    const msg = { text: "Just a regular message", bot_id: "B123", blocks: [] };
+    expect(extractSessionIdFromMessage(msg)).toBeNull();
+  });
+
+  it("returns null when message has no text and no blocks", () => {
+    const msg = { bot_id: "B123" };
+    expect(extractSessionIdFromMessage(msg)).toBeNull();
+  });
+
+  it("prefers text field over blocks", () => {
+    const textUuid = "11111111-2222-3333-4444-555555555555";
+    const blockUuid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const msg = {
+      text: `Session: ${textUuid}`,
+      bot_id: "B123",
+      blocks: [{ type: "markdown", text: `:link: \`${blockUuid}\`` }],
+    };
+    expect(extractSessionIdFromMessage(msg)).toBe(textUuid);
+  });
+
+  it("extracts session ID from rich_text blocks (Slack conversion of markdown blocks)", () => {
+    const msg = {
+      text: "",
+      bot_id: "B123",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [
+                { type: "emoji", name: "link" },
+                { type: "text", text: ` \`${testUuid}\`` },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
+  });
+
+  it("extracts session ID from rich_text with Session: prefix", () => {
+    const msg = {
+      text: "",
+      bot_id: "B123",
+      blocks: [
+        {
+          type: "rich_text",
+          elements: [
+            {
+              type: "rich_text_section",
+              elements: [{ type: "text", text: `Session: ${testUuid}` }],
+            },
+          ],
+        },
+      ],
+    };
+    expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
   });
 });
 
