@@ -156,7 +156,12 @@ describe("extractSessionIdFromMessage", () => {
     const msg = {
       text: "",
       bot_id: "B123",
-      blocks: [{ type: "markdown", text: `---\n:link: \`${testUuid}\`\n\`\`\`\ncd /repo && claude --resume ${testUuid}\n\`\`\`` }],
+      blocks: [
+        {
+          type: "markdown",
+          text: `---\n:link: \`${testUuid}\`\n\`\`\`\ncd /repo && claude --resume ${testUuid}\n\`\`\``,
+        },
+      ],
     };
     expect(extractSessionIdFromMessage(msg)).toBe(testUuid);
   });

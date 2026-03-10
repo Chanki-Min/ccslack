@@ -86,7 +86,7 @@ export function extractSessionIdFromMessage(m: any): string | null {
         for (const section of block.elements) {
           if (!Array.isArray(section.elements)) continue;
           const sectionText = section.elements
-            .map((elem: any) => (elem.type === "emoji" ? `:${elem.name}:` : elem.text ?? ""))
+            .map((elem: any) => (elem.type === "emoji" ? `:${elem.name}:` : (elem.text ?? "")))
             .join("");
           const sectionMatch = sectionText.match(SESSION_ID_RE);
           if (sectionMatch) return sectionMatch[1] ?? null;
